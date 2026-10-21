@@ -1,7 +1,7 @@
 # GC8 Digital Companion — Business Requirements & Continuation Guide
 
 **Document ID:** GC8-BRD-001  
-**Version:** 1.1  
+**Version:** 1.2  
 **Last updated:** 2026-10-21  
 **Status:** Working baseline; individual integration capabilities require validation  
 **Source of truth:** This file for product scope and decisions; `README.md` for build/run instructions; Git history for actual implementation.  
@@ -19,7 +19,7 @@
 
 Build a discreet, purpose-built **digital companion**, not a replacement ECU, stereo, factory cluster, or smartphone. The circular AMOLED display should look integrated with a 1990s motorsport-era GC8 while providing glanceable modern information: phone-sourced clock, navigation, now-playing metadata, incoming call/status information where supported, and eventually independently acquired engine telemetry. The system must boot directly into the GC8 interface without an app launcher.
 
-The owner has **already successfully built, flashed and seen the custom GC8 LVGL dashboard on the physical Waveshare board** (confirmed in conversation on 2026-10-21). The current firmware displays placeholder engine values because no vehicle sensor/controller hardware is yet connected. **The immediate priority is smartphone integration, not gauges.**
+The owner has **already successfully built, flashed and seen the custom GC8 LVGL dashboard on the physical Waveshare board** (confirmed in conversation on 2026-10-21). The current firmware displays placeholder engine values because no vehicle sensor/controller hardware is yet connected. **The immediate priority is **Android navigation integration**, not gauges. The owner prefers a full moving map but accepts arrow + distance + street name as the first deliverable.**
 
 The car has an existing **Bluetooth audio head unit**. All music playback, track control, volume, call audio, speakers, and microphone are handled by that head unit/phone. **The Waveshare is display-only for media and calls: no playback buttons, no volume controls, no answer/decline controls, no audio streaming, no microphone or speaker requirement.** This is an explicit scope decision.
 
@@ -97,7 +97,7 @@ Priority codes: **P0** necessary for first useful phone-connected release; **P1*
 | FR-021 | P2 | Diagnostics | Supported read-only ECU diagnostics with explicit limits/unsupported states |
 | FR-022 | P1 | Versioned data protocol | Schema version, message type, timestamps, units and validity/status defined and documented |
 
-### 4.1 Navigation details
+### 4.1 Navigation details\n\n**Updated owner priority:** Navigation is the first phone feature. Full moving map is preferred for user experience, but an initial display with **turn arrow, distance and street name** is explicitly acceptable. Clock, media and other phone features should not block navigation work.\n\n**Implementation caution:** Google Maps does not expose unrestricted turn-by-turn state to companion apps. Android notification-listener approaches are permission-dependent and may omit details or change between Maps versions. Validate on the actual phone. A true moving map may require a separately licensed routing/map source, phone-side rendering and an efficient transfer strategy; do not promise live Google Maps mirroring or full map tiles on the ESP32 without a tested design.\n\n**Navigation acceptance path:**\n- [ ] Confirm preferred navigation app and Android version.\n- [ ] Prototype supported guidance extraction or navigation source on phone.\n- [ ] Deliver real next-turn arrow, distance and street name to Waveshare.\n- [ ] Validate reroute, app background, no active route and disconnect states.\n- [ ] Investigate full map only after reliable turn-by-turn works.\n
 
 Desired fields: maneuver icon, distance to next maneuver, street/road name, ETA, remaining trip distance, active/inactive guidance state. **Not required:** full map tiles, rendering Google Maps inside the ESP32, or route planning on the display. Prefer simple guidance; investigate phone OS/API constraints before committing to a specific navigation provider. If Google Maps doesn't expose needed data, document a supported alternative and obtain approval rather than scraping notifications without discussing reliability.
 
@@ -162,7 +162,7 @@ Current four dashboard fields are placeholders, not live measurements. Stock EJ2
 
 ### Not yet implemented or not verified
 
-- [ ] Phone operating system and model confirmed.
+- [ ] Phone model and Android OS version confirmed.
 - [ ] BLE pairing, reconnection and metadata transport.
 - [ ] Phone companion application.
 - [ ] Real clock synchronization.
@@ -186,9 +186,9 @@ Current four dashboard fields are placeholders, not live measurements. Stock EJ2
 - [x] Flash and verify display operation on hardware.
 - [x] Store source and build instructions in GitHub.
 
-### Milestone 1 — Phone integration discovery and protocol (NEXT)
+### Milestone 1 — Android navigation integration discovery and protocol (NEXT)
 
-- [ ] **Ask owner: Android or iPhone? Exact phone model and OS version?**
+- [x] Confirm primary platform: **Android**.\n- [ ] Ask exact Android phone model and OS version.
 - [ ] Confirm current head unit connection and whether phone supports simultaneous BLE peripheral data connection.
 - [ ] Confirm whether installing a small companion app on phone is acceptable.
 - [ ] Identify platform-supported sources for time, now-playing metadata, navigation and call status. Document unsupported/restricted capabilities; do not promise Google Maps or caller data without evidence.
@@ -275,7 +275,7 @@ Current four dashboard fields are placeholders, not live measurements. Stock EJ2
 
 ## 11. Open questions — do not guess
 
-1. Primary smartphone: **Android or iPhone? Exact model/OS version?**
+1. Primary smartphone is **Android**; exact model/OS version remains TBD.
 2. Is installing a minimal companion app acceptable?
 3. Preferred navigation application (Google Maps, Waze, Apple Maps, etc.)?
 4. Is caller info actually wanted if it requires sensitive phone permissions?

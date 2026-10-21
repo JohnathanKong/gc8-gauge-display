@@ -1,15 +1,57 @@
 # GC8 Gauge Display
 
-Custom single-purpose ESP-IDF firmware for Waveshare ESP32-S3-Touch-AMOLED-1.75C Rev 1.1.
+Purpose-built firmware for the **Waveshare ESP32-S3-Touch-AMOLED-1.75C Rev 1.1**. This board runs our dashboard directly; there is no Android/Linux app launcher. A separate hidden controller will eventually send real telemetry.
 
-## v0.1
-Uses the Waveshare BSP and LVGL to render a GC8 dashboard with coolant, AFR, boost and RPM placeholders. No fake sensor readings, Bluetooth, or factory launcher.
+## Current state
 
-## Build
-Vendor examples are validated on ESP-IDF v6.0.2 / v5.5.5. Installed v6.1 is unverified. Dependencies download via ESP-IDF Component Manager.
+The initial LVGL dashboard source is committed. It shows GC8 branding, coolant, AFR, boost, RPM and an offline/controller status. Sensor values deliberately remain unavailable until connected to a real controller.
 
-**Before building:** Back up then remove the existing locally generated `sdkconfig` and `build/` directory, so `sdkconfig.defaults` applies the correct 32 MB flash, octal PSRAM, and partition settings. Select ESP32-S3 and build. Flash only the development board, not the untouched factory-reference unit.
+**Build and hardware operation have not yet been confirmed.** The developer has ESP-IDF **v6.1** installed; Waveshare's example support may differ.
 
-Source based on official board support: https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C
+## Windows 11 / VS Code — everyday build
 
-**Status:** Source committed; compilation and display operation still require local validation.
+Prerequisites: VS Code with the **Espressif IDF** extension configured, ESP-IDF installed, and this repository cloned. The development board uses ESP32-S3; the other board is kept as a factory reference.
+
+1. Open this folder in VS Code: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display`.
+2. Press **Ctrl+Shift+P** and run **ESP-IDF: Open ESP-IDF Terminal**. **Do not use the ordinary PowerShell or Git Bash terminal**: they will show `ERROR: ESP-IDF environment is not active`.
+3. In the newly opened ESP-IDF terminal, run **`build.bat`** (or `.\build.bat` in PowerShell).
+4. Wait for the build to finish. **Do not flash if the build fails.** Copy the first actual error and the last 20–30 output lines for troubleshooting.
+
+After a successful build, use the ESP-IDF extension's **Flash Your Project** command with the development board on the correct COM port. Then run **Monitor Device** to inspect boot logs. Exit the monitor with **Ctrl+]**. Flashing replaces the existing firmware; never flash the untouched reference board.
+
+### First build after switching from the original generic starter
+
+The old `sdkconfig` was generated for a different board configuration. Do this **only once**, before rebuilding the new dashboard:
+
+1. Stop any running build or serial monitor.
+2. In the project root, rename `sdkconfig` to `sdkconfig.backup` if it exists.
+3. Delete the generated `build` directory if it exists.
+4. Open the ESP-IDF terminal as above and run `build.bat`. The script selects `esp32s3` if no `sdkconfig` exists and generates a fresh config using `sdkconfig.defaults`.
+
+**If a build is already running, let it finish.** Do not delete `sdkconfig` or `build` while it is building. If it succeeds, inspect the configuration before flashing; if it fails, collect the error first.
+
+### Troubleshooting
+
+- **`ESP-IDF environment is not active`**: Open **ESP-IDF: Open ESP-IDF Terminal** from the VS Code command palette. Reopening VS Code may require opening that terminal again.
+- **`idf.py` not recognized**: Same cause: ESP-IDF environment not activated.
+- **Component download or version conflict**: ESP-IDF v6.1 may be incompatible with the vendor BSP. Check the actual error before switching versions.
+- **Screen still shows the factory image**: A prior generic program did not initialize the display. This is not evidence of a crash. Check serial logs and board support.
+- **PSRAM/flash boot errors**: Verify board-specific `sdkconfig.defaults` were applied by a fresh configuration before trying another flash.
+
+## Repository structure
+
+- `main/main.cpp`: GC8 LVGL dashboard
+- `main/idf_component.yml`: board-support and LVGL dependencies
+- `sdkconfig.defaults`: initial board configuration
+- `partitions.csv`: flash partition layout
+- `build.bat`: Windows build helper (requires active ESP-IDF terminal)
+- `.gitignore`: generated/local files excluded from Git
+
+Board reference: https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C
+
+## Next milestones
+
+1. Get a verified successful build and show the dashboard on the actual AMOLED.
+2. Confirm LVGL layout and display performance.
+3. Implement a small, versioned BLE telemetry protocol from the hidden controller.
+4. Add real ECU/sensor data only after acquisition hardware is validated. Keep ECU communication read-only.

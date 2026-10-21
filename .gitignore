@@ -1,0 +1,12 @@
+build/
+**/build/
+managed_components/
+.espressif/
+sdkconfig
+sdkconfig.old
+*.bin
+*.elf
+*.map
+*.log
+.DS_Store
+.vscode/

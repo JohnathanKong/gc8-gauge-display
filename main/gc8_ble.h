@@ -9,6 +9,8 @@ struct Gc8BleSnapshot {
     char distance[20];
     char road[48];
     char destination[48];
+    bool has_demo_afr;
+    char demo_afr[8];
 };
 
 void gc8_ble_start();

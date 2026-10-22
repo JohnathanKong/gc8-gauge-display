@@ -67,3 +67,7 @@ Files: `main/gc8_ble.cpp`, `main/gc8_ble.h`; `main.cpp`, `main/CMakeLists.txt`, 
 ### First BLE firmware build attempt — 2026-10-21
 
 Owner's ESP-IDF v6.1 Windows build failed compiling `main/gc8_ble.cpp` with `-Werror=missing-field-initializers` at line 44 (NimBLE GATT characteristic aggregate initialization). Commit `be076456` replaces partially initialized C aggregates with zero-initialized arrays and explicit field assignments before GATT registration. **Fix committed, rebuild not yet confirmed.** Next: `git pull`, then `build.bat` in ESP-IDF terminal; inspect any new compiler errors before flashing.
+
+### BLE firmware build confirmed — 2026-10-21
+
+Owner supplied ESP-IDF terminal screenshot showing successful ESP32-S3 image generation, `Project build complete`, and ~89% of app partition free after the C++ GATT initializer fix. Kconfig deprecation/default-value notes did not prevent build. **Build verified; BLE firmware flashing, advertising, and Android connectivity are still unverified.** Next flash only development board and inspect device log for `Advertising GC8 service` (or startup errors). Do not assume BLE is working merely because compilation succeeded.

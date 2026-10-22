@@ -6,7 +6,7 @@ Purpose-built firmware for the **Waveshare ESP32-S3-Touch-AMOLED-1.75C Rev 1.1**
 
 The initial LVGL dashboard source is committed. It shows GC8 branding, coolant, AFR, boost, RPM and an offline/controller status. Sensor values deliberately remain unavailable until connected to a real controller.
 
-**Build and hardware operation have not yet been confirmed.** The developer has ESP-IDF **v6.1** installed; Waveshare's example support may differ.
+**Owner previously confirmed successful build, flash and operation of the LVGL dashboard on the physical Waveshare.** The developer uses ESP-IDF **v6.1**. The BLE integration has not been built or flashed.
 
 ## Windows 11 / VS Code — everyday build
 
@@ -55,3 +55,7 @@ Board reference: https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C
 2. Confirm LVGL layout and display performance.
 3. Implement a small, versioned BLE telemetry protocol from the hidden controller.
 4. Add real ECU/sensor data only after acquisition hardware is validated. Keep ECU communication read-only.
+
+## Android BLE integration — started 2026-10-21
+
+Android companion repository `JohnathanKong/gc8-gauge-display-android` now has an **unverified** BLE central prototype that scans for service UUID `a8e31c40-6b8f-4b67-a4f0-4a0b75000001` and discovers characteristic `a8e31c40-6b8f-4b67-a4f0-4a0b75000002`. These UUIDs are provisional protocol identifiers. **This display firmware does not yet initialize Bluetooth, advertise the service, or accept writes; end-to-end connection is NOT working.** Next implement the ESP-IDF BLE peripheral with matching UUIDs, verify its build, then test connection with the Android APK on actual hardware. Keep the existing LVGL dashboard functional and avoid overwriting the untouched factory-reference board. The current Android prototype has no navigation data write path. Owner confirmed Samsung Fold8 Google Maps notification text and Samsung-specific candidate distance fields; movement semantics remain unverified.

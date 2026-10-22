@@ -19,10 +19,12 @@ lv_obj_t *phone_label = nullptr;
 lv_obj_t *distance_label = nullptr;
 lv_obj_t *road_label = nullptr;
 lv_obj_t *nav_hint = nullptr;
+lv_obj_t *destination_label = nullptr;
 lv_obj_t *arrow = nullptr;
 char previous_distance[20] = {};
 char previous_road[48] = {};
 char previous_maneuver[16] = {};
+char previous_destination[48] = {};
 bool previous_connected = false;
 bool previous_navigation = false;
 bool first_refresh = true;
@@ -85,13 +87,15 @@ void refresh_ble_ui(lv_timer_t *) {
         state.has_navigation == previous_navigation &&
         std::strcmp(state.distance, previous_distance) == 0 &&
         std::strcmp(state.road, previous_road) == 0 &&
-        std::strcmp(state.maneuver, previous_maneuver) == 0) return;
+        std::strcmp(state.maneuver, previous_maneuver) == 0 &&
+        std::strcmp(state.destination, previous_destination) == 0) return;
     first_refresh = false;
     previous_connected = state.connected;
     previous_navigation = state.has_navigation;
     std::snprintf(previous_distance, sizeof(previous_distance), "%s", state.distance);
     std::snprintf(previous_road, sizeof(previous_road), "%s", state.road);
     std::snprintf(previous_maneuver, sizeof(previous_maneuver), "%s", state.maneuver);
+    std::snprintf(previous_destination, sizeof(previous_destination), "%s", state.destination);
 
     lv_label_set_text(phone_label, state.connected ? "PHONE CONNECTED" : "PHONE WAITING");
     if (state.connected && state.has_navigation) {
@@ -99,11 +103,13 @@ void refresh_ble_ui(lv_timer_t *) {
         lv_label_set_text(distance_label, state.distance);
         lv_label_set_text(road_label, state.road);
         lv_label_set_text(nav_hint, "NEXT TURN");
+        lv_label_set_text_fmt(destination_label, "TO: %s", *state.destination ? state.destination : "Not provided");
     } else {
         draw_maneuver("");
         lv_label_set_text(distance_label, "--");
         lv_label_set_text(road_label, "Start navigation");
         lv_label_set_text(nav_hint, "NO ROUTE DATA");
+        lv_label_set_text(destination_label, "TO: --");
     }
 }
 
@@ -124,21 +130,22 @@ void render_navigation() {
 
     nav_hint = label(screen, "NO ROUTE DATA", &lv_font_montserrat_16, kMuted, 206);
     distance_label = label(screen, "--", &lv_font_montserrat_26, kWhite, 233);
-    road_label = label(screen, "Start navigation", &lv_font_montserrat_16, kWhite, 271, 356);
+    road_label = label(screen, "Start navigation", &lv_font_montserrat_16, kWhite, 267, 356);
+    destination_label = label(screen, "TO: --", &lv_font_montserrat_16, kMuted, 292, 330);
 
     auto *divider = lv_obj_create(screen);
-    lv_obj_set_pos(divider, 105, 316);
+    lv_obj_set_pos(divider, 105, 324);
     lv_obj_set_size(divider, 256, 2);
     lv_obj_set_style_bg_color(divider, lv_color_hex(kRule), 0);
     lv_obj_set_style_border_width(divider, 0, 0);
     lv_obj_set_style_radius(divider, 0, 0);
     lv_obj_set_style_pad_all(divider, 0, 0);
 
-    label(screen, "WIDEBAND AFR", &lv_font_montserrat_16, kMuted, 335);
-    label(screen, "--.-", &lv_font_montserrat_26, kWhite, 360);
+    label(screen, "WIDEBAND AFR", &lv_font_montserrat_16, kMuted, 342);
+    label(screen, "--.-", &lv_font_montserrat_26, kWhite, 367);
     // Decorative neutral arc is deliberately omitted until calibrated AFR
     // thresholds and a real wideband signal exist.
-    label(screen, "NO SENSOR", &lv_font_montserrat_16, kAccent, 401);
+    label(screen, "NO SENSOR", &lv_font_montserrat_16, kAccent, 408);
     lv_timer_create(refresh_ble_ui, 250, nullptr);
     refresh_ble_ui(nullptr);
 }

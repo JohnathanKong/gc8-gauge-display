@@ -71,3 +71,7 @@ Owner's ESP-IDF v6.1 Windows build failed compiling `main/gc8_ble.cpp` with `-We
 ### BLE firmware build confirmed — 2026-10-21
 
 Owner supplied ESP-IDF terminal screenshot showing successful ESP32-S3 image generation, `Project build complete`, and ~89% of app partition free after the C++ GATT initializer fix. Kconfig deprecation/default-value notes did not prevent build. **Build verified; BLE firmware flashing, advertising, and Android connectivity are still unverified.** Next flash only development board and inspect device log for `Advertising GC8 service` (or startup errors). Do not assume BLE is working merely because compilation succeeded.
+
+### Development Waveshare flashed — owner confirmation, 2026-10-21
+
+Owner confirmed flashing the newly built BLE firmware to the development Waveshare and seeing the existing dashboard with `WAITING FOR CONTROLLER`. This verifies firmware boot and LVGL rendering after the BLE changes; the label refers to the future ECU/sensor controller, **not BLE connection state**. BLE advertising, GATT connection, and data writes remain unverified. Next: build/install Android BLE client and press `Connect to GC8 display (BLE)` with the powered-on Waveshare nearby; if not found, inspect ESP-IDF serial monitor for `Advertising GC8 service` and Bluetooth startup errors.

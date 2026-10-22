@@ -82,12 +82,12 @@ void draw_home() {
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     // Top edge remains reserved for a future pull-down notification shade.
-    make_label(screen, "GC8", &lv_font_montserrat_16, kBlue, 177, 28, 112, LV_TEXT_ALIGN_CENTER);
+    make_label(screen, "GC8", &lv_font_montserrat_16, kBlue, 177, 26, 112, LV_TEXT_ALIGN_CENTER);
     connection = make_label(screen, "PHONE WAITING", &lv_font_montserrat_16,
-                            kMuted, 126, 54, 214, LV_TEXT_ALIGN_CENTER);
+                            kMuted, 126, 51, 214, LV_TEXT_ALIGN_CENTER);
 
     maneuver_graphic = lv_image_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 62, 104);
+    lv_obj_set_pos(maneuver_graphic, 67, 106);
     lv_obj_set_size(maneuver_graphic, 112, 132);
     lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kWhite), 0);
     lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
@@ -96,31 +96,43 @@ void draw_home() {
     lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_SCROLLABLE);
 
     distance = make_label(screen, "--", &lv_font_montserrat_26,
-                          kWhite, 220, 132, 207);
+                          kWhite, 214, 126, 212);
     street = make_label(screen, "Start navigation", &lv_font_montserrat_20,
-                        kWhite, 220, 174, 207);
+                        kWhite, 214, 169, 212);
     maneuver_note = make_label(screen, "NO ROUTE DATA", &lv_font_montserrat_16,
-                               kMuted, 220, 211, 207);
+                               kMuted, 214, 207, 212);
     make_label(screen, "Destination:", &lv_font_montserrat_16,
-               kMuted, 177, 260, 245);
+               kMuted, 155, 252, 270);
     destination = make_label(screen, "--", &lv_font_montserrat_20,
-                             kWhite, 177, 283, 245);
+                             kWhite, 155, 276, 270);
 
     auto *divider = lv_obj_create(screen);
-    lv_obj_set_pos(divider, 68, 325);
-    lv_obj_set_size(divider, 330, 2);
+    lv_obj_set_pos(divider, 79, 318);
+    lv_obj_set_size(divider, 308, 2);
     lv_obj_set_style_bg_color(divider, lv_color_hex(kRule), 0);
     lv_obj_set_style_border_width(divider, 0, 0);
     lv_obj_set_style_radius(divider, 0, 0);
     lv_obj_set_style_pad_all(divider, 0, 0);
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
 
+    // Neutral framing arc: decorative only, never an AFR safety scale.
+    auto *afr_arc = lv_arc_create(screen);
+    lv_obj_set_size(afr_arc, 348, 348);
+    lv_obj_set_pos(afr_arc, 59, 75);
+    lv_arc_set_rotation(afr_arc, 0);
+    lv_arc_set_bg_angles(afr_arc, 32, 148);
+    lv_arc_set_value(afr_arc, 0);
+    lv_obj_set_style_arc_color(afr_arc, lv_color_hex(kRule), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(afr_arc, 5, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(afr_arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_remove_flag(afr_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(afr_arc, LV_OBJ_FLAG_SCROLLABLE);
     make_label(screen, "WIDEBAND AFR", &lv_font_montserrat_16,
-               kMuted, 138, 344, 190, LV_TEXT_ALIGN_CENTER);
+               kMuted, 138, 331, 190, LV_TEXT_ALIGN_CENTER);
     make_label(screen, "--.-", &lv_font_montserrat_26,
-               kWhite, 155, 371, 156, LV_TEXT_ALIGN_CENTER);
+               kWhite, 155, 359, 156, LV_TEXT_ALIGN_CENTER);
     make_label(screen, "NO SENSOR", &lv_font_montserrat_16,
-               kBlue, 150, 411, 166, LV_TEXT_ALIGN_CENTER);
+               kBlue, 150, 401, 166, LV_TEXT_ALIGN_CENTER);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
     refresh_navigation(nullptr);

@@ -57,7 +57,16 @@ bool parse_test_message(char *buffer) {
         *delimiter = '\0';
         parts[i] = delimiter + 1;
     }
-    if (std::strchr(parts[4], '|') || std::strcmp(parts[0], "GC8") ||
+    // Optional sixth field carries the final destination. Older five-field
+    // test messages remain supported.
+    char *destination = std::strchr(parts[4], '|');
+    if (destination) {
+        *destination = '\0';
+        ++destination;
+        if (std::strchr(destination, '|') || !valid_ascii(destination) ||
+            std::strlen(destination) >= sizeof(snapshot.destination)) return false;
+    }
+    if (std::strcmp(parts[0], "GC8") ||
         std::strcmp(parts[1], "1") || !valid_ascii(parts[2]) ||
         !valid_ascii(parts[3]) || !valid_ascii(parts[4])) return false;
     if (std::strcmp(parts[2], "RIGHT") && std::strcmp(parts[2], "LEFT") &&
@@ -68,6 +77,7 @@ bool parse_test_message(char *buffer) {
     std::snprintf(snapshot.maneuver, sizeof(snapshot.maneuver), "%s", parts[2]);
     std::snprintf(snapshot.distance, sizeof(snapshot.distance), "%s", parts[3]);
     std::snprintf(snapshot.road, sizeof(snapshot.road), "%s", parts[4]);
+    std::snprintf(snapshot.destination, sizeof(snapshot.destination), "%s", destination ? destination : "");
     snapshot.has_navigation = true;
     portEXIT_CRITICAL(&snapshot_lock);
     return true;

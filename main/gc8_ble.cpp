@@ -37,7 +37,7 @@ Gc8BleSnapshot copy_snapshot() {
 void set_connection(bool connected) {
     portENTER_CRITICAL(&snapshot_lock);
     snapshot.connected = connected;
-    if (!connected) snapshot.has_navigation = false;
+    if (!connected) { snapshot.has_navigation = false; snapshot.has_demo_afr = false; }
     portEXIT_CRITICAL(&snapshot_lock);
 }
 bool valid_ascii(const char *value) {
@@ -60,11 +60,26 @@ bool parse_test_message(char *buffer) {
     // Optional sixth field carries the final destination. Older five-field
     // test messages remain supported.
     char *destination = std::strchr(parts[4], '|');
+    char *demo_afr = nullptr;
     if (destination) {
         *destination = '\0';
         ++destination;
-        if (std::strchr(destination, '|') || !valid_ascii(destination) ||
+        demo_afr = std::strchr(destination, '|');
+        if (demo_afr) { *demo_afr = '\0'; ++demo_afr; }
+        if (!valid_ascii(destination) ||
             std::strlen(destination) >= sizeof(snapshot.destination)) return false;
+    }
+    // A seventh field is allowed only as an explicitly marked DEMO value.
+    // Never interpret this as a measured AFR.
+    if (demo_afr) {
+        if (std::strncmp(demo_afr, "DEMO:", 5) != 0) return false;
+        const char *value = demo_afr + 5;
+        if (!*value || std::strlen(value) >= sizeof(snapshot.demo_afr)) return false;
+        int dots = 0;
+        for (const char *p = value; *p; ++p) {
+            if (*p == '.') { if (++dots > 1) return false; }
+            else if (*p < '0' || *p > '9') return false;
+        }
     }
     if (std::strcmp(parts[0], "GC8") ||
         std::strcmp(parts[1], "1") || !valid_ascii(parts[2]) ||
@@ -78,6 +93,8 @@ bool parse_test_message(char *buffer) {
     std::snprintf(snapshot.distance, sizeof(snapshot.distance), "%s", parts[3]);
     std::snprintf(snapshot.road, sizeof(snapshot.road), "%s", parts[4]);
     std::snprintf(snapshot.destination, sizeof(snapshot.destination), "%s", destination ? destination : "");
+    snapshot.has_demo_afr = demo_afr != nullptr;
+    std::snprintf(snapshot.demo_afr, sizeof(snapshot.demo_afr), "%s", demo_afr ? demo_afr + 5 : "");
     snapshot.has_navigation = true;
     portEXIT_CRITICAL(&snapshot_lock);
     return true;

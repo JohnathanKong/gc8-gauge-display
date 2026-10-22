@@ -87,3 +87,7 @@ Both repositories now contain the first data-transfer test implementation. Andro
 ### 2026-10-22 BLE data-transfer build evidence
 
 Owner provided ESP-IDF terminal screenshot showing `Successfully created ESP32-S3 image` and `Project build complete` for the newly updated Waveshare firmware with BLE test navigation UI; ~89% of application partition remains free. **Compiled successfully; flashing this revision and visually verifying `PHONE: WAITING` / test navigation are still pending.** The Android data-write revision is not yet reported built or installed. Next flash development Waveshare and verify visible status, then install updated Android APK and test write.
+
+### BLE navigation display firmware flashed — 2026-10-22
+
+Owner confirmed the updated development Waveshare firmware was flashed and the new phone-waiting UI appeared as expected. This verifies physical boot and the new UI baseline; **a phone connection on this revision and test navigation data appearing on the screen have not yet been verified**. Next use the updated Android app: connect BLE, tap `Send test navigation to Waveshare`, and check the Waveshare for `PHONE: CONNECTED`, `NAV: RIGHT 250 m`, and `Main St`.

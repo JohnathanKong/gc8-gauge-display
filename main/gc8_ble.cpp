@@ -81,8 +81,8 @@ int on_write(uint16_t, uint16_t, struct ble_gatt_access_ctxt *ctx, void *) {
     if (ble_hs_mbuf_to_flat(ctx->om, buffer, length, nullptr) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
-    // Connection smoke test only. Never trust incoming bytes or interpret as vehicle telemetry.
-    ESP_LOGI(TAG, "Received %u BLE bytes", static_cast<unsigned>(length));
+    if (!parse_test_message(buffer)) return BLE_ATT_ERR_UNLIKELY;
+    ESP_LOGI(TAG, "Accepted GC8 test navigation message (%u bytes)", static_cast<unsigned>(length));
     return 0;
 }
 
@@ -103,10 +103,12 @@ int gap_event(ble_gap_event *event, void *) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             ESP_LOGI(TAG, "BLE connect status=%d", event->connect.status);
-            if (event->connect.status == 0) set_connection(true);\n            else advertise();
+            if (event->connect.status == 0) set_connection(true);
+            else advertise();
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
-            ESP_LOGI(TAG, "BLE disconnected");\n            set_connection(false);
+            ESP_LOGI(TAG, "BLE disconnected");
+            set_connection(false);
             advertise();
             return 0;
         case BLE_GAP_EVENT_ADV_COMPLETE:

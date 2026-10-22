@@ -22,6 +22,8 @@ lv_obj_t *street = nullptr;
 lv_obj_t *destination = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
 lv_obj_t *maneuver_note = nullptr;
+lv_obj_t *afr_value = nullptr;
+lv_obj_t *afr_status = nullptr;
 Gc8BleSnapshot previous = {};
 bool first_update = true;
 
@@ -60,6 +62,13 @@ void refresh_navigation(lv_timer_t *) {
     previous = current;
 
     lv_label_set_text(connection, current.connected ? "PHONE CONNECTED" : "PHONE WAITING");
+    if (current.connected && current.has_demo_afr) {
+        lv_label_set_text(afr_value, current.demo_afr);
+        lv_label_set_text(afr_status, "DEMO ONLY");
+    } else {
+        lv_label_set_text(afr_value, "--.-");
+        lv_label_set_text(afr_status, "NO SENSOR");
+    }
     if (current.connected && current.has_navigation) {
         draw_arrow(current.maneuver);
         lv_label_set_text(distance, current.distance);
@@ -115,23 +124,13 @@ void draw_home() {
     lv_obj_set_style_pad_all(divider, 0, 0);
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Neutral framing arc: decorative only, never an AFR safety scale.
-    auto *afr_arc = lv_arc_create(screen);
-    lv_obj_set_size(afr_arc, 348, 348);
-    lv_obj_set_pos(afr_arc, 59, 75);
-    lv_arc_set_rotation(afr_arc, 0);
-    lv_arc_set_bg_angles(afr_arc, 32, 148);
-    lv_arc_set_value(afr_arc, 0);
-    lv_obj_set_style_arc_color(afr_arc, lv_color_hex(kRule), LV_PART_MAIN);
-    lv_obj_set_style_arc_width(afr_arc, 5, LV_PART_MAIN);
-    lv_obj_set_style_arc_opa(afr_arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
-    lv_obj_remove_flag(afr_arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(afr_arc, LV_OBJ_FLAG_SCROLLABLE);
+    // No LVGL arc: its default knob caused a bright dot and its placement
+    // obscured the status. Keep the AFR section clean until calibrated data.
     make_label(screen, "WIDEBAND AFR", &lv_font_montserrat_16,
                kMuted, 138, 331, 190, LV_TEXT_ALIGN_CENTER);
-    make_label(screen, "--.-", &lv_font_montserrat_26,
+    afr_value = make_label(screen, "--.-", &lv_font_montserrat_26,
                kWhite, 155, 359, 156, LV_TEXT_ALIGN_CENTER);
-    make_label(screen, "NO SENSOR", &lv_font_montserrat_16,
+    afr_status = make_label(screen, "NO SENSOR", &lv_font_montserrat_16,
                kBlue, 150, 401, 166, LV_TEXT_ALIGN_CENTER);
 
     lv_timer_create(refresh_navigation, 250, nullptr);

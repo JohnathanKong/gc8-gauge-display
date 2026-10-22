@@ -1,6 +1,9 @@
 #include "gc8_ble.h"
 
 #include <cstring>
+#include <cstdio>
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -22,12 +25,59 @@ static const ble_uuid128_t write_uuid = BLE_UUID128_INIT(
     0x02, 0x00, 0x00, 0x75, 0x0b, 0x4a, 0xf0, 0xa4,
     0x67, 0x4b, 0x8f, 0x6b, 0x40, 0x1c, 0xe3, 0xa8);
 uint8_t own_addr_type = BLE_OWN_ADDR_PUBLIC;
+portMUX_TYPE snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
+Gc8BleSnapshot snapshot = {};
+
+Gc8BleSnapshot copy_snapshot() {
+    portENTER_CRITICAL(&snapshot_lock);
+    Gc8BleSnapshot result = snapshot;
+    portEXIT_CRITICAL(&snapshot_lock);
+    return result;
+}
+void set_connection(bool connected) {
+    portENTER_CRITICAL(&snapshot_lock);
+    snapshot.connected = connected;
+    if (!connected) snapshot.has_navigation = false;
+    portEXIT_CRITICAL(&snapshot_lock);
+}
+bool valid_ascii(const char *value) {
+    for (; *value; ++value) {
+        if (static_cast<unsigned char>(*value) < 32 ||
+            static_cast<unsigned char>(*value) > 126) return false;
+    }
+    return true;
+}
+bool parse_test_message(char *buffer) {
+    // Strict, versioned, pipe-separated ASCII message. Reject malformed data.
+    char *parts[5] = {};
+    parts[0] = buffer;
+    for (int i = 1; i < 5; ++i) {
+        char *delimiter = std::strchr(parts[i - 1], '|');
+        if (!delimiter) return false;
+        *delimiter = '\0';
+        parts[i] = delimiter + 1;
+    }
+    if (std::strchr(parts[4], '|') || std::strcmp(parts[0], "GC8") ||
+        std::strcmp(parts[1], "1") || !valid_ascii(parts[2]) ||
+        !valid_ascii(parts[3]) || !valid_ascii(parts[4])) return false;
+    if (std::strcmp(parts[2], "RIGHT") && std::strcmp(parts[2], "LEFT") &&
+        std::strcmp(parts[2], "STRAIGHT")) return false;
+    if (!*parts[3] || !*parts[4] || std::strlen(parts[3]) >= 20 ||
+        std::strlen(parts[4]) >= 48) return false;
+    portENTER_CRITICAL(&snapshot_lock);
+    std::snprintf(snapshot.maneuver, sizeof(snapshot.maneuver), "%s", parts[2]);
+    std::snprintf(snapshot.distance, sizeof(snapshot.distance), "%s", parts[3]);
+    std::snprintf(snapshot.road, sizeof(snapshot.road), "%s", parts[4]);
+    snapshot.has_navigation = true;
+    portEXIT_CRITICAL(&snapshot_lock);
+    return true;
+}
 
 int on_write(uint16_t, uint16_t, struct ble_gatt_access_ctxt *ctx, void *) {
     if (ctx->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
     const auto length = OS_MBUF_PKTLEN(ctx->om);
-    if (length == 0 || length > 180) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-    char buffer[181] = {};
+    if (length == 0 || length > 100) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    char buffer[101] = {};
     if (ble_hs_mbuf_to_flat(ctx->om, buffer, length, nullptr) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
@@ -53,10 +103,10 @@ int gap_event(ble_gap_event *event, void *) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             ESP_LOGI(TAG, "BLE connect status=%d", event->connect.status);
-            if (event->connect.status != 0) advertise();
+            if (event->connect.status == 0) set_connection(true);\n            else advertise();
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
-            ESP_LOGI(TAG, "BLE disconnected");
+            ESP_LOGI(TAG, "BLE disconnected");\n            set_connection(false);
             advertise();
             return 0;
         case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -118,4 +168,8 @@ void gc8_ble_start() {
     if (rc != 0) { ESP_LOGE(TAG, "GATT registration failed: %d", rc); return; }
     ble_hs_cfg.sync_cb = synced;
     nimble_port_freertos_init(host_task);
+}
+
+Gc8BleSnapshot gc8_ble_snapshot() {
+    return copy_snapshot();
 }

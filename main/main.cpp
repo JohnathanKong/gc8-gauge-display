@@ -1,4 +1,5 @@
 #include "esp_log.h"
+#include "gc8_ble.h"
 #include "lvgl.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
@@ -78,4 +79,5 @@ extern "C" void app_main(void) {
     render_dashboard();
     bsp_display_unlock();
     ESP_LOGI(TAG, "Dashboard initialized; telemetry intentionally unavailable");
+    gc8_ble_start();
 }

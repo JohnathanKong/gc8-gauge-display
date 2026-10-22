@@ -8,6 +8,7 @@ struct Gc8BleSnapshot {
     char maneuver[16];
     char distance[20];
     char road[48];
+    char destination[48];
 };
 
 void gc8_ble_start();

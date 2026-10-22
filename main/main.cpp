@@ -2,6 +2,7 @@
 #include <cstring>
 #include "esp_log.h"
 #include "gc8_ble.h"
+#include "nav_arrow_assets.h"
 #include "lvgl.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
@@ -38,38 +39,17 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *value, const lv_font_t *font,
     return obj;
 }
 
-void stroke(lv_obj_t *parent, const lv_point_precise_t *points, uint32_t count,
-            int width = 24) {
-    auto *line = lv_line_create(parent);
-    lv_line_set_points(line, points, count);
-    lv_obj_set_style_line_color(line, lv_color_hex(kWhite), 0);
-    lv_obj_set_style_line_width(line, width, 0);
-    lv_obj_set_style_line_rounded(line, true, 0);
-    lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
-}
-
-// Vector paths drawn directly by LVGL, not rectangular UI widgets or a font glyph.
-// The elbow is rounded by the line renderer and the head is a sharp chevron.
+// Pre-rendered alpha assets replace LVGL line-based arrows.
 void draw_arrow(const char *turn) {
-    lv_obj_clean(maneuver_graphic);
-    if (std::strcmp(turn, "RIGHT") == 0) {
-        static const lv_point_precise_t shaft[] = {{36, 147}, {36, 91}, {52, 73}, {125, 73}};
-        static const lv_point_precise_t head[] = {{102, 48}, {128, 73}, {102, 98}};
-        stroke(maneuver_graphic, shaft, 4);
-        stroke(maneuver_graphic, head, 3, 22);
-    } else if (std::strcmp(turn, "LEFT") == 0) {
-        static const lv_point_precise_t shaft[] = {{128, 147}, {128, 91}, {112, 73}, {39, 73}};
-        static const lv_point_precise_t head[] = {{62, 48}, {36, 73}, {62, 98}};
-        stroke(maneuver_graphic, shaft, 4);
-        stroke(maneuver_graphic, head, 3, 22);
-    } else if (std::strcmp(turn, "STRAIGHT") == 0) {
-        static const lv_point_precise_t shaft[] = {{82, 147}, {82, 48}};
-        static const lv_point_precise_t head[] = {{56, 75}, {82, 46}, {108, 75}};
-        stroke(maneuver_graphic, shaft, 2);
-        stroke(maneuver_graphic, head, 3, 22);
+    const lv_image_dsc_t *source = nullptr;
+    if (std::strcmp(turn, "RIGHT") == 0) source = &nav_right_image;
+    else if (std::strcmp(turn, "LEFT") == 0) source = &nav_left_image;
+    else if (std::strcmp(turn, "STRAIGHT") == 0) source = &nav_straight_image;
+    lv_image_set_src(maneuver_graphic, source);
+    if (source) {
+        lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_HIDDEN);
     } else {
-        make_label(maneuver_graphic, "--", &lv_font_montserrat_26, kMuted,
-                   55, 65, 90, LV_TEXT_ALIGN_CENTER);
+        lv_obj_add_flag(maneuver_graphic, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -106,10 +86,11 @@ void draw_home() {
     connection = make_label(screen, "PHONE WAITING", &lv_font_montserrat_16,
                             kMuted, 126, 54, 214, LV_TEXT_ALIGN_CENTER);
 
-    maneuver_graphic = lv_obj_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 48, 92);
-    lv_obj_set_size(maneuver_graphic, 170, 169);
-    lv_obj_set_style_bg_opa(maneuver_graphic, LV_OPA_TRANSP, 0);
+    maneuver_graphic = lv_image_create(screen);
+    lv_obj_set_pos(maneuver_graphic, 62, 104);
+    lv_obj_set_size(maneuver_graphic, 112, 132);
+    lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kWhite), 0);
+    lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(maneuver_graphic, 0, 0);
     lv_obj_set_style_pad_all(maneuver_graphic, 0, 0);
     lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_SCROLLABLE);

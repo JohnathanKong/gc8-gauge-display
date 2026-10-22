@@ -1,4 +1,5 @@
 #include <cstring>
+#include <cstdio>
 #include "esp_log.h"
 #include "gc8_ble.h"
 #include "lvgl.h"

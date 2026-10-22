@@ -36,17 +36,17 @@ int on_write(uint16_t, uint16_t, struct ble_gatt_access_ctxt *ctx, void *) {
     return 0;
 }
 
-const ble_gatt_chr_def characteristics[] = {
-    { .uuid = &write_uuid.u, .access_cb = on_write,
-      .arg = nullptr, .descriptors = nullptr,
-      .flags = BLE_GATT_CHR_F_WRITE, .min_key_size = 0, .val_handle = nullptr },
-    {}
-};
-const ble_gatt_svc_def services[] = {
-    { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = &service_uuid.u,
-      .includes = nullptr, .characteristics = characteristics },
-    {}
-};
+// Zero-initialize NimBLE C structs; C++ -Wmissing-field-initializers is an error.
+ble_gatt_chr_def characteristics[2] = {};
+ble_gatt_svc_def services[2] = {};
+void configure_gatt() {
+    characteristics[0].uuid = &write_uuid.u;
+    characteristics[0].access_cb = on_write;
+    characteristics[0].flags = BLE_GATT_CHR_F_WRITE;
+    services[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
+    services[0].uuid = &service_uuid.u;
+    services[0].characteristics = characteristics;
+}
 
 void advertise();
 int gap_event(ble_gap_event *event, void *) {
@@ -112,6 +112,7 @@ void gc8_ble_start() {
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_svc_gap_device_name_set("GC8 Display");
+    configure_gatt();
     int rc = ble_gatts_count_cfg(services);
     if (rc == 0) rc = ble_gatts_add_svcs(services);
     if (rc != 0) { ESP_LOGE(TAG, "GATT registration failed: %d", rc); return; }

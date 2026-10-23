@@ -151,7 +151,6 @@ void draw_home() {
                              kWhite, 91, 308, 333);
     lv_label_set_long_mode(destination, LV_LABEL_LONG_WRAP);
     lv_obj_set_height(destination, 49);
-    lv_obj_set_style_max_height(destination, 49, 0);
     add_line(screen, 52, 367, 414, 367, kRule, 1);
 
     // Two-column instrument cluster. Unconnected sensors never show fake values.

@@ -85,7 +85,7 @@ void refresh_navigation(lv_timer_t *) {
     first_update = false;
     previous = current;
 
-    lv_label_set_text(connection, current.connected ? "PHONE CONNECTED" : "PHONE WAITING");
+    lv_label_set_text(connection, current.connected ? "BLE CONNECTED" : "BLE WAITING");
     if (current.connected && current.has_demo_afr) {
         lv_label_set_text(afr_value, current.demo_afr);
         lv_label_set_text(afr_label, "AFR DEMO");
@@ -124,7 +124,7 @@ void draw_home() {
     // Header is deliberately lower than the clipped corners of a circle.
     make_label(screen, "GC8", &lv_font_montserrat_26,
                kBlue, 179, 28, 108, LV_TEXT_ALIGN_CENTER);
-    connection = make_label(screen, "PHONE WAITING", &lv_font_montserrat_16,
+    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_16,
                             kMuted, 121, 65, 224, LV_TEXT_ALIGN_CENTER);
     add_sprite(screen, &cockpit_art::battery_icon, 322, 73, kMuted);
     make_label(screen, "--", &lv_font_montserrat_16, kMuted, 354, 70, 34);

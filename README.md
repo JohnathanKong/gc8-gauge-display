@@ -133,3 +133,14 @@ After owner review of the physical screen, batched multiple UI changes instead o
 - Extended the existing optional-destination navigation test protocol with an **optional seventh field**, e.g. `GC8|1|RIGHT|250 m|Main St|Apex Motoring|DEMO:14.7`. The parser accepts only a `DEMO:`-prefixed numeric test value. Five- and six-field navigation messages still work. The display renders `14.7` plus **DEMO ONLY**, never a misleading live sensor status. When demo data is absent or BLE disconnects, it displays `--.-` / **NO SENSOR**. No actual AEM sensor connection exists.
 - The Android **Send test navigation to Waveshare** button sends the seven-field message in **one BLE write**, so no additional BLE characteristic or sequencing is required. This is a fixed test value, **not a live or calibrated AFR reading**.
 - Firmware and Android changes are committed but **not independently compiled, flashed, or tested**. Rebuild BOTH repositories, flash development Waveshare and install updated APK; reconnect and press the test button. Check the arrow, destination, AFR value and DEMO ONLY status. Do not flash if build fails.
+
+
+## Circular-safe cockpit redesign — 2026-10-23
+
+The prior layout placed instrument text at y=445 and the battery marker near the top-right corner of a 466×466 circular screen. Both could be clipped despite being inside the square pixel grid. The current code replaces that draft with a safe-area layout:
+
+- `main/cockpit_art.h` creates dedicated antialiased A8 graphic assets once at startup: shaded perspective roadway with lane markings, blue/red perimeter instrument arcs, a checkered destination flag, and a battery-outline symbol. These are composited as LVGL image sprites rather than approximated by a handful of line objects.
+- `main/main.cpp` places all navigation text and both instrument labels inside the round viewport. Street and destination labels have fixed height and ellipsize overlong text, preventing overlap with the bottom gauges. Existing LEFT/RIGHT/STRAIGHT arrow image assets are preserved.
+- The battery icon deliberately displays `--` until there is a **verified battery-voltage signal**. Boost likewise shows `--.-` until a sensor exists; demo AFR is labeled as such.
+- Navigation BLE protocol, parsing, and Android companion have not changed.
+- Visual design is based on a software circle-cropped preview; **firmware has not been compiled or verified on the physical device**. Build using the ESP-IDF terminal, flash only the development display, and inspect the rendered layout before further changes.

@@ -37,7 +37,11 @@ Gc8BleSnapshot copy_snapshot() {
 void set_connection(bool connected) {
     portENTER_CRITICAL(&snapshot_lock);
     snapshot.connected = connected;
-    if (!connected) { snapshot.has_navigation = false; snapshot.has_demo_afr = false; }
+    if (!connected) {
+        snapshot.has_navigation = false;
+        snapshot.has_demo_afr = false;
+        snapshot.destination[0] = '\0';
+    }
     portEXIT_CRITICAL(&snapshot_lock);
 }
 bool valid_ascii(const char *value) {
@@ -56,6 +60,27 @@ bool parse_test_message(char *buffer) {
         snapshot.distance[0] = '\0';
         snapshot.road[0] = '\0';
         snapshot.destination[0] = '\0';
+        portEXIT_CRITICAL(&snapshot_lock);
+        return true;
+    }
+    // Destination is independent of guidance. Google Maps often starts with
+    // "0 m" or an incomplete instruction, sometimes for many seconds.
+    // GC8|1|DEST|<selected place> immediately identifies the active route
+    // without manufacturing a turn, distance, or street.
+    constexpr char kDestinationPrefix[] = "GC8|1|DEST|";
+    if (std::strncmp(buffer, kDestinationPrefix,
+                     sizeof(kDestinationPrefix) - 1) == 0) {
+        const char *place = buffer + sizeof(kDestinationPrefix) - 1;
+        if (!*place || !valid_ascii(place) ||
+            std::strchr(place, '|') != nullptr ||
+            std::strlen(place) >= sizeof(snapshot.destination)) return false;
+        portENTER_CRITICAL(&snapshot_lock);
+        std::snprintf(snapshot.destination, sizeof(snapshot.destination), "%s", place);
+        snapshot.has_navigation = false;
+        snapshot.has_demo_afr = false;
+        snapshot.maneuver[0] = '\0';
+        snapshot.distance[0] = '\0';
+        snapshot.road[0] = '\0';
         portEXIT_CRITICAL(&snapshot_lock);
         return true;
     }

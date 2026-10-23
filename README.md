@@ -144,3 +144,7 @@ The prior layout placed instrument text at y=445 and the battery marker near the
 - The battery icon deliberately displays `--` until there is a **verified battery-voltage signal**. Boost likewise shows `--.-` until a sensor exists; demo AFR is labeled as such.
 - Navigation BLE protocol, parsing, and Android companion have not changed.
 - Visual design is based on a software circle-cropped preview; **firmware has not been compiled or verified on the physical device**. Build using the ESP-IDF terminal, flash only the development display, and inspect the rendered layout before further changes.
+
+### 2026-10-23 — independent immediate destination rendering
+
+ESP32 BLE parser now accepts strict, ASCII `GC8|1|DEST|<confirmed name>` (1–47 bytes of place name) as well as existing `GC8|1|CLEAR` and complete guidance packets. DEST stores the selected place name but deliberately clears prior arrows, distance, street, and any demo AFR values. On connection drop, stored place name is cleared. The LVGL dashboard renders a nonempty destination immediately, with `Getting directions...` in the maneuver area until Google Maps publishes an actual usable distance+turn. Complete guidance messages continue to replace the arrow, distance, street and destination exactly as before; CLEAR removes them all. No fabricated direction, distance or vehicle sensor data is shown. Update/flash both firmware and Android companion for this behavior; the previous ESP32 version cannot accept `DEST`. Source is committed but not compiled/flashed or hardware-verified.

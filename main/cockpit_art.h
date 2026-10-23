@@ -11,12 +11,16 @@ constexpr int road_w = 320, road_h = 82;
 constexpr int arc_w = 96, arc_h = 96;
 constexpr int flag_w = 34, flag_h = 36;
 constexpr int battery_w = 26, battery_h = 14;
+// A discrete U-shaped alpha image, open at top and cradling the AFR number.
+// No LVGL arc knob, ticks, warning zones or calibrated AFR colour scale.
+constexpr int cradle_w = 280, cradle_h = 126;
 
 static uint8_t road_pixels[road_w * road_h] = {};
 static uint8_t left_arc_pixels[arc_w * arc_h] = {};
 static uint8_t right_arc_pixels[arc_w * arc_h] = {};
 static uint8_t flag_pixels[flag_w * flag_h] = {};
 static uint8_t battery_pixels[battery_w * battery_h] = {};
+static uint8_t cradle_pixels[cradle_w * cradle_h] = {};
 
 static const lv_image_dsc_t road = {
     .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
@@ -34,6 +38,13 @@ static const lv_image_dsc_t right_arc = {
     .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
                .flags = 0, .w = arc_w, .h = arc_h, .stride = arc_w, .reserved_2 = 0},
     .data_size = sizeof(right_arc_pixels), .data = right_arc_pixels,
+    .reserved = nullptr, .reserved_2 = nullptr
+};
+static const lv_image_dsc_t afr_cradle = {
+    .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
+               .flags = 0, .w = cradle_w, .h = cradle_h,
+               .stride = cradle_w, .reserved_2 = 0},
+    .data_size = sizeof(cradle_pixels), .data = cradle_pixels,
     .reserved = nullptr, .reserved_2 = nullptr
 };
 static const lv_image_dsc_t finish_flag = {
@@ -139,6 +150,25 @@ inline void paint_battery() {
         }
     }
 }
+// Continuous lower half of a narrow ellipse, centered under the AFR value.
+// The radius stays inside the lower circular display boundary.
+inline void paint_afr_cradle() {
+    constexpr float rx = 130.0f;
+    constexpr float ry = 116.0f;
+    constexpr float center_x = (cradle_w - 1) * 0.5f;
+    for (int y = 0; y < cradle_h; ++y) {
+        for (int x = 0; x < cradle_w; ++x) {
+            const float nx = (x - center_x) / rx;
+            const float ny = static_cast<float>(y) / ry;
+            const float ellipse = std::sqrt(nx * nx + ny * ny);
+            // Signed radial distance in approximate screen pixels.
+            const float distance = (ellipse - 1.0f) * 119.0f;
+            const float glow = 27.0f * bell(distance, 7.0f);
+            const float core = 175.0f * bell(distance, 1.55f);
+            cradle_pixels[y * cradle_w + x] = clamp_alpha(glow + core);
+        }
+    }
+}
 inline void rasterize() {
     static bool initialized = false;
     if (initialized) return;
@@ -147,6 +177,7 @@ inline void rasterize() {
     paint_arc(right_arc_pixels, 323, 30.0f, 57.0f);
     paint_flag();
     paint_battery();
+    paint_afr_cradle();
     initialized = true;
 }
 } // namespace cockpit_art

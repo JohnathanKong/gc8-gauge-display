@@ -145,7 +145,7 @@ int on_write(uint16_t, uint16_t, struct ble_gatt_access_ctxt *ctx, void *) {
         return BLE_ATT_ERR_UNLIKELY;
     }
     if (!parse_test_message(buffer)) return BLE_ATT_ERR_UNLIKELY;
-    ESP_LOGI(TAG, "Accepted GC8 test navigation message (%u bytes)", static_cast<unsigned>(length));
+    ESP_LOGI(TAG, "Accepted GC8 BLE packet (%u bytes)", static_cast<unsigned>(length));
     return 0;
 }
 

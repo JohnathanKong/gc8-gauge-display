@@ -201,9 +201,9 @@ void draw_home() {
 
     // Separate, broad two-line street zone; long street names ellipsize,
     // never shrink into illegible characters or invade the AFR section.
-    street = make_label(screen, "Start navigation", &lv_font_montserrat_26,
-                        kWhite, 65, 275, 336, LV_TEXT_ALIGN_CENTER);
-    lv_obj_set_size(street, 336, 69);
+    street = make_label(screen, "Start navigation", &lv_font_montserrat_32,
+                        kWhite, 65, 270, 336, LV_TEXT_ALIGN_CENTER);
+    lv_obj_set_size(street, 336, 77);
     lv_label_set_long_mode(street, LV_LABEL_LONG_DOT);
 
     add_rule(screen, 66, 351, 334, kRule, 2);

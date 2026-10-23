@@ -39,6 +39,7 @@ void set_connection(bool connected) {
     snapshot.connected = connected;
     if (!connected) {
         snapshot.has_navigation = false;
+        snapshot.route_active = false;
         snapshot.has_demo_afr = false;
         snapshot.destination[0] = '\0';
     }
@@ -52,9 +53,24 @@ bool valid_ascii(const char *value) {
     return true;
 }
 bool parse_test_message(char *buffer) {
+    // Notification-only mode: show "Getting directions..." immediately
+    // after Maps starts navigation, without capturing the destination.
+    if (std::strcmp(buffer, "GC8|1|START") == 0) {
+        portENTER_CRITICAL(&snapshot_lock);
+        snapshot.route_active = true;
+        snapshot.has_navigation = false;
+        snapshot.has_demo_afr = false;
+        snapshot.maneuver[0] = '\0';
+        snapshot.distance[0] = '\0';
+        snapshot.road[0] = '\0';
+        snapshot.destination[0] = '\0';
+        portEXIT_CRITICAL(&snapshot_lock);
+        return true;
+    }
     if (std::strcmp(buffer, "GC8|1|CLEAR") == 0) {
         portENTER_CRITICAL(&snapshot_lock);
         snapshot.has_navigation = false;
+        snapshot.route_active = false;
         snapshot.has_demo_afr = false;
         snapshot.maneuver[0] = '\0';
         snapshot.distance[0] = '\0';
@@ -76,6 +92,7 @@ bool parse_test_message(char *buffer) {
             std::strlen(place) >= sizeof(snapshot.destination)) return false;
         portENTER_CRITICAL(&snapshot_lock);
         std::snprintf(snapshot.destination, sizeof(snapshot.destination), "%s", place);
+        snapshot.route_active = true;
         snapshot.has_navigation = false;
         snapshot.has_demo_afr = false;
         snapshot.maneuver[0] = '\0';
@@ -132,6 +149,7 @@ bool parse_test_message(char *buffer) {
     snapshot.has_demo_afr = demo_afr != nullptr;
     std::snprintf(snapshot.demo_afr, sizeof(snapshot.demo_afr), "%s", demo_afr ? demo_afr + 5 : "");
     snapshot.has_navigation = true;
+    snapshot.route_active = true;
     portEXIT_CRITICAL(&snapshot_lock);
     return true;
 }

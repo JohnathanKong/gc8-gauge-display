@@ -110,8 +110,6 @@ void draw_home() {
                         kWhite, 236, 137, 190, LV_TEXT_ALIGN_CENTER);
     lv_label_set_long_mode(street, LV_LABEL_LONG_WRAP);
     lv_obj_set_height(street, 86);
-    lv_obj_set_style_max_height(street, 86, 0);
-    lv_obj_set_style_align(street, LV_ALIGN_TOP_LEFT, 0);
     make_label(screen, "Destination:", &lv_font_montserrat_16,
                kMuted, 155, 252, 270);
     destination = make_label(screen, "--", &lv_font_montserrat_20,

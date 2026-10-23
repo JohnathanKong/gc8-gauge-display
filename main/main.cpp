@@ -13,7 +13,9 @@ constexpr uint32_t kBlack = 0x030609;
 constexpr uint32_t kWhite = 0xF5F9FF;
 constexpr uint32_t kMuted = 0x91A0B3;
 constexpr uint32_t kBlue = 0x43A9F7;
-constexpr uint32_t kRule = 0x263644;
+constexpr uint32_t kRule = 0x175B99;
+constexpr uint32_t kPanel = 0x071320;
+constexpr uint32_t kRed = 0xE04D61;
 constexpr int kDiameter = 466;
 
 lv_obj_t *connection = nullptr;
@@ -23,6 +25,7 @@ lv_obj_t *destination = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
 lv_obj_t *afr_value = nullptr;
 lv_obj_t *afr_status = nullptr;
+lv_obj_t *boost_value = nullptr;
 Gc8BleSnapshot previous = {};
 bool first_update = true;
 
@@ -79,12 +82,26 @@ void refresh_navigation(lv_timer_t *) {
         lv_label_set_text(street, "Start navigation");
         lv_label_set_text(destination, "--");
     }
-    // Center the wrapped street block vertically, never horizontally.
+    // Navigation line stays inside its own top-right region.
     // Recalculate after each route update because the line count changes.
     lv_obj_update_layout(street);
     const int text_height = lv_obj_get_height(street);
-    const int top = 166 - (text_height / 2);
-    lv_obj_set_y(street, top < 108 ? 108 : (top > 205 ? 205 : top));
+    const int top = 165 - (text_height / 2);
+    lv_obj_set_y(street, top < 126 ? 126 : (top > 185 ? 185 : top));
+}
+
+void add_line(lv_obj_t *parent, int x1, int y1, int x2, int y2,
+              uint32_t color, int width, lv_opa_t opacity = LV_OPA_COVER) {
+    auto *line = lv_line_create(parent);
+    lv_point_precise_t points[] = {
+        {static_cast<lv_value_precise_t>(x1), static_cast<lv_value_precise_t>(y1)},
+        {static_cast<lv_value_precise_t>(x2), static_cast<lv_value_precise_t>(y2)}
+    };
+    lv_line_set_points(line, points, 2);
+    lv_obj_set_style_line_color(line, lv_color_hex(color), 0);
+    lv_obj_set_style_line_width(line, width, 0);
+    lv_obj_set_style_line_opa(line, opacity, 0);
+    lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 void draw_home() {
@@ -93,55 +110,69 @@ void draw_home() {
     lv_obj_set_style_bg_color(screen, lv_color_hex(kBlack), 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Top edge remains reserved for a future pull-down notification shade.
-    make_label(screen, "GC8", &lv_font_montserrat_16, kBlue, 177, 26, 112, LV_TEXT_ALIGN_CENTER);
+    // Restrained cockpit header. Battery percentage is intentionally unavailable:
+    // this firmware does not yet have a verified battery voltage input.
+    make_label(screen, "GC8", &lv_font_montserrat_20,
+               kBlue, 183, 18, 100, LV_TEXT_ALIGN_CENTER);
     connection = make_label(screen, "PHONE WAITING", &lv_font_montserrat_16,
-                            kMuted, 126, 51, 214, LV_TEXT_ALIGN_CENTER);
+                            kMuted, 119, 49, 228, LV_TEXT_ALIGN_CENTER);
+    make_label(screen, "BAT --", &lv_font_montserrat_16,
+               kMuted, 346, 24, 92, LV_TEXT_ALIGN_RIGHT);
+
+    // Perspective-road motif: intentionally dim behind the main navigation.
+    add_line(screen, 226, 197, 78, 267, kBlue, 2, LV_OPA_20);
+    add_line(screen, 240, 197, 388, 267, kBlue, 2, LV_OPA_20);
+    add_line(screen, 233, 200, 233, 260, kBlue, 2, LV_OPA_20);
+    add_line(screen, 233, 265, 233, 273, kBlue, 2, LV_OPA_40);
 
     maneuver_graphic = lv_image_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 71, 99);
-    lv_obj_set_size(maneuver_graphic, 112, 132);
-    lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kWhite), 0);
+    lv_obj_set_pos(maneuver_graphic, 59, 101);
+    lv_obj_set_size(maneuver_graphic, 132, 140);
+    lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kBlue), 0);
     lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(maneuver_graphic, 0, 0);
     lv_obj_set_style_pad_all(maneuver_graphic, 0, 0);
     lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Distance sits directly below the maneuver arrow.
     distance = make_label(screen, "--", &lv_font_montserrat_26,
-                          kWhite, 54, 240, 184, LV_TEXT_ALIGN_CENTER);
-    // A dedicated two-line street box prevents long road names from colliding
-    // with distance or the destination section.
+                          kWhite, 204, 110, 220, LV_TEXT_ALIGN_LEFT);
     street = make_label(screen, "Start navigation", &lv_font_montserrat_20,
-                        kWhite, 231, 137, 185, LV_TEXT_ALIGN_LEFT);
+                        kWhite, 204, 153, 220, LV_TEXT_ALIGN_LEFT);
     lv_label_set_long_mode(street, LV_LABEL_LONG_WRAP);
-    // Natural label height is needed for accurate vertical centering.
-    make_label(screen, "Destination:", &lv_font_montserrat_16,
-               kMuted, 222, 216, 205);
+
+    add_line(screen, 42, 273, 424, 273, kBlue, 2, LV_OPA_COVER);
+
+    // Destination gets two bounded lines; never crosses the instrument divider.
+    make_label(screen, "DESTINATION", &lv_font_montserrat_16,
+               kBlue, 91, 287, 245);
+    make_label(screen, ">>", &lv_font_montserrat_20,
+               kBlue, 53, 311, 40);
     destination = make_label(screen, "--", &lv_font_montserrat_20,
-                             kWhite, 222, 240, 205);
+                             kWhite, 91, 308, 333);
+    lv_label_set_long_mode(destination, LV_LABEL_LONG_WRAP);
+    lv_obj_set_height(destination, 49);
+    lv_obj_set_style_max_height(destination, 49, 0);
+    add_line(screen, 52, 367, 414, 367, kRule, 1);
 
-    auto *divider = lv_obj_create(screen);
-    lv_obj_set_pos(divider, 79, 318);
-    lv_obj_set_size(divider, 308, 2);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(kRule), 0);
-    lv_obj_set_style_border_width(divider, 0, 0);
-    lv_obj_set_style_radius(divider, 0, 0);
-    lv_obj_set_style_pad_all(divider, 0, 0);
-    lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
-
-    // No LVGL arc: its default knob caused a bright dot and its placement
-    // obscured the status. Keep the AFR section clean until calibrated data.
-    make_label(screen, "WIDEBAND AFR", &lv_font_montserrat_16,
-               kMuted, 138, 331, 190, LV_TEXT_ALIGN_CENTER);
+    // Two-column instrument cluster. Unconnected sensors never show fake values.
+    make_label(screen, "AFR", &lv_font_montserrat_16,
+               kBlue, 80, 424, 125, LV_TEXT_ALIGN_CENTER);
     afr_value = make_label(screen, "--.-", &lv_font_montserrat_26,
-               kWhite, 155, 359, 156, LV_TEXT_ALIGN_CENTER);
+                           kWhite, 72, 380, 142, LV_TEXT_ALIGN_CENTER);
     afr_status = make_label(screen, "NO SENSOR", &lv_font_montserrat_16,
-               kBlue, 150, 401, 166, LV_TEXT_ALIGN_CENTER);
+                            kMuted, 66, 445, 154, LV_TEXT_ALIGN_CENTER);
+    add_line(screen, 233, 379, 233, 451, kRule, 1);
+    boost_value = make_label(screen, "--.-", &lv_font_montserrat_26,
+                             kWhite, 260, 380, 142, LV_TEXT_ALIGN_CENTER);
+    make_label(screen, "BOOST", &lv_font_montserrat_16,
+               kBlue, 269, 424, 126, LV_TEXT_ALIGN_CENTER);
+    make_label(screen, "NO SENSOR", &lv_font_montserrat_16,
+               kMuted, 254, 445, 156, LV_TEXT_ALIGN_CENTER);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
     refresh_navigation(nullptr);
 }
+
 } // namespace
 
 extern "C" void app_main(void) {

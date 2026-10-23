@@ -60,12 +60,15 @@ void enlarge_mask(const uint8_t *source, uint8_t *target) {
     for (int y = 0; y < kArrowH; ++y) {
         const int sy = y * (kArrowSrcH - 1) * 256 / (kArrowH - 1);
         const int top = sy >> 8, fy = sy & 255;
+        const int bottom = top + (top < kArrowSrcH - 1 ? 1 : 0);
         for (int x = 0; x < kArrowW; ++x) {
             const int sx = x * (kArrowSrcW - 1) * 256 / (kArrowW - 1);
             const int left = sx >> 8, fx = sx & 255;
-            const int i = top * kArrowSrcW + left;
-            const int a = source[i], b = source[i + 1];
-            const int d = source[i + kArrowSrcW], e = source[i + kArrowSrcW + 1];
+            const int right = left + (left < kArrowSrcW - 1 ? 1 : 0);
+            const int a = source[top * kArrowSrcW + left];
+            const int b = source[top * kArrowSrcW + right];
+            const int d = source[bottom * kArrowSrcW + left];
+            const int e = source[bottom * kArrowSrcW + right];
             const int first = a * (256 - fx) + b * fx;
             const int second = d * (256 - fx) + e * fx;
             target[y * kArrowW + x] =

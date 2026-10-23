@@ -160,7 +160,11 @@ void refresh_navigation(lv_timer_t *) {
     } else {
         draw_arrow("");
         lv_label_set_text(distance, "--");
-        lv_label_set_text(street, current.connected ? "Getting directions..." : "Start navigation");
+        // A DEST-only packet marks an active route without consuming screen
+        // space with its full address. Before Start, show a neutral idle cue.
+        const bool route_started = current.connected && current.destination[0] != '\0';
+        lv_label_set_text(street, route_started ? "Getting directions..." :
+                          current.connected ? "Start navigation" : "Connect phone");
     }
 }
 

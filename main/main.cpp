@@ -50,7 +50,8 @@ void add_rule(lv_obj_t *screen, int x, int y, int width, uint32_t color, int hei
     lv_obj_set_style_border_width(rule, 0, 0);
     lv_obj_set_style_radius(rule, 0, 0);
     lv_obj_set_style_pad_all(rule, 0, 0);
-    lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
 }
 
 void add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
@@ -60,7 +61,8 @@ void add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
     lv_obj_set_pos(sprite, x, y);
     lv_obj_set_style_image_recolor(sprite, lv_color_hex(color), 0);
     lv_obj_set_style_image_recolor_opa(sprite, LV_OPA_COVER, 0);
-    lv_obj_remove_flag(sprite, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(sprite, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(sprite, LV_OBJ_FLAG_CLICKABLE);
 }
 
 // Preserve the previously tested LEFT/RIGHT/STRAIGHT artwork and BLE protocol.
@@ -165,7 +167,7 @@ void draw_home() {
     afr_label = make_label(screen, "AFR", &lv_font_montserrat_16,
                            kBlue, 124, 412, 100, LV_TEXT_ALIGN_CENTER);
     make_label(screen, "BOOST", &lv_font_montserrat_16,
-               kBlue, 255, 412, 100, LV_TEXT_ALIGN_CENTER);
+               kBlue, 249, 412, 102, LV_TEXT_ALIGN_CENTER);
     add_rule(screen, 233, 376, 1, kRule, 51);
 
     lv_timer_create(refresh_navigation, 250, nullptr);

@@ -94,16 +94,18 @@ void refresh_navigation(lv_timer_t *) {
         lv_label_set_text(afr_label, "AFR");
     }
 
+    // The destination is displayed as soon as Start is confirmed, even
+    // when Maps has not yet published a positive turn distance.
+    const bool has_destination = current.connected && *current.destination;
+    lv_label_set_text(destination, has_destination ? current.destination : "--");
     if (current.connected && current.has_navigation) {
         draw_arrow(current.maneuver);
         lv_label_set_text(distance, current.distance);
         lv_label_set_text(street, current.road);
-        lv_label_set_text(destination, *current.destination ? current.destination : "Not provided");
     } else {
         draw_arrow("");
         lv_label_set_text(distance, "--");
-        lv_label_set_text(street, "Start navigation");
-        lv_label_set_text(destination, "--");
+        lv_label_set_text(street, has_destination ? "Getting directions..." : "Start navigation");
     }
 }
 

@@ -48,6 +48,17 @@ bool valid_ascii(const char *value) {
     return true;
 }
 bool parse_test_message(char *buffer) {
+    if (std::strcmp(buffer, "GC8|1|CLEAR") == 0) {
+        portENTER_CRITICAL(&snapshot_lock);
+        snapshot.has_navigation = false;
+        snapshot.has_demo_afr = false;
+        snapshot.maneuver[0] = '\\0';
+        snapshot.distance[0] = '\\0';
+        snapshot.road[0] = '\\0';
+        snapshot.destination[0] = '\\0';
+        portEXIT_CRITICAL(&snapshot_lock);
+        return true;
+    }
     // Strict, versioned, pipe-separated ASCII message. Reject malformed data.
     char *parts[5] = {};
     parts[0] = buffer;

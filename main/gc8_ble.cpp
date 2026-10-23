@@ -52,10 +52,10 @@ bool parse_test_message(char *buffer) {
         portENTER_CRITICAL(&snapshot_lock);
         snapshot.has_navigation = false;
         snapshot.has_demo_afr = false;
-        snapshot.maneuver[0] = '\\0';
-        snapshot.distance[0] = '\\0';
-        snapshot.road[0] = '\\0';
-        snapshot.destination[0] = '\\0';
+        snapshot.maneuver[0] = '\0';
+        snapshot.distance[0] = '\0';
+        snapshot.road[0] = '\0';
+        snapshot.destination[0] = '\0';
         portEXIT_CRITICAL(&snapshot_lock);
         return true;
     }

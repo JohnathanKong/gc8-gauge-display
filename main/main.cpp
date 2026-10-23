@@ -20,7 +20,6 @@ constexpr uint32_t kRule = 0x205D92;
 lv_obj_t *connection = nullptr;
 lv_obj_t *distance = nullptr;
 lv_obj_t *street = nullptr;
-lv_obj_t *destination = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
 lv_obj_t *afr_value = nullptr;
 lv_obj_t *afr_label = nullptr;
@@ -94,10 +93,9 @@ void refresh_navigation(lv_timer_t *) {
         lv_label_set_text(afr_label, "AFR");
     }
 
-    // The destination is displayed as soon as Start is confirmed, even
-    // when Maps has not yet published a positive turn distance.
-    const bool has_destination = current.connected && *current.destination;
-    lv_label_set_text(destination, has_destination ? current.destination : "--");
+    // Driving view deliberately omits destination: a postal address is too
+    // verbose to read safely from a small gauge mounted far from the driver.
+    // BLE still accepts/stores destination for a future details page.
     if (current.connected && current.has_navigation) {
         draw_arrow(current.maneuver);
         lv_label_set_text(distance, current.distance);
@@ -105,7 +103,7 @@ void refresh_navigation(lv_timer_t *) {
     } else {
         draw_arrow("");
         lv_label_set_text(distance, "--");
-        lv_label_set_text(street, has_destination ? "Getting directions..." : "Start navigation");
+        lv_label_set_text(street, current.connected ? "Getting directions..." : "Start navigation");
     }
 }
 
@@ -116,61 +114,51 @@ void draw_home() {
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // These pre-rasterized A8 illustrations are rendered once, not redrawn
-    // in every 250ms BLE refresh. Layout fits the circular 466px viewport.
+    // Glanceable 466x466 round gauge, with generous circular safe margins.
+    // No destination row, boost field, battery placeholder or tiny captions.
+    // This is a navigation + always-visible AFR driving screen.
     cockpit_art::rasterize();
-    add_sprite(screen, &cockpit_art::road, 73, 187, kBlue);
+    add_sprite(screen, &cockpit_art::road, 73, 193, kBlue);
     add_sprite(screen, &cockpit_art::left_arc, 47, 321, kBlue);
     add_sprite(screen, &cockpit_art::right_arc, 323, 321, kRed);
 
-    // Header is deliberately lower than the clipped corners of a circle.
     make_label(screen, "GC8", &lv_font_montserrat_26,
-               kBlue, 179, 28, 108, LV_TEXT_ALIGN_CENTER);
-    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_16,
-                            kMuted, 121, 65, 224, LV_TEXT_ALIGN_CENTER);
-    add_sprite(screen, &cockpit_art::battery_icon, 322, 73, kMuted);
-    make_label(screen, "--", &lv_font_montserrat_16, kMuted, 354, 70, 34);
-    // No verified battery-voltage input: do not invent percentage or runtime.
+               kBlue, 179, 24, 108, LV_TEXT_ALIGN_CENTER);
+    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_20,
+                            kMuted, 120, 63, 226, LV_TEXT_ALIGN_CENTER);
 
+    // Scale the approved silhouette by 25% instead of changing its shape.
+    // At x=87,y=115 its rendered bounds remain in the round safe area.
     maneuver_graphic = lv_image_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 66, 105);
+    lv_obj_set_pos(maneuver_graphic, 87, 115);
     lv_obj_set_size(maneuver_graphic, 112, 132);
+    lv_image_set_scale(maneuver_graphic, 320); // LVGL 256 == 100%
     lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kBlue), 0);
     lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(maneuver_graphic, 0, 0);
     lv_obj_set_style_pad_all(maneuver_graphic, 0, 0);
     lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_SCROLLABLE);
 
-    distance = make_label(screen, "--", &lv_font_montserrat_26,
-                          kWhite, 205, 117, 188, LV_TEXT_ALIGN_LEFT);
-    street = make_label(screen, "Start navigation", &lv_font_montserrat_20,
-                        kWhite, 205, 159, 194, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_size(street, 194, 53);
+    // The distance is the highest-priority navigation text.
+    distance = make_label(screen, "--", &lv_font_montserrat_40,
+                          kWhite, 222, 130, 185, LV_TEXT_ALIGN_LEFT);
+
+    // Separate, broad two-line street zone; long street names ellipsize,
+    // never shrink into illegible characters or invade the AFR section.
+    street = make_label(screen, "Start navigation", &lv_font_montserrat_26,
+                        kWhite, 65, 275, 336, LV_TEXT_ALIGN_CENTER);
+    lv_obj_set_size(street, 336, 69);
     lv_label_set_long_mode(street, LV_LABEL_LONG_DOT);
 
-    add_rule(screen, 68, 273, 330, kBlue, 2);
+    add_rule(screen, 66, 351, 334, kRule, 2);
 
-    // A flag image and a height-bounded two-line address prevent any destination
-    // from reaching the AFR/boost readouts; LVGL ellipsizes long addresses.
-    add_sprite(screen, &cockpit_art::finish_flag, 86, 293, kWhite);
-    destination = make_label(screen, "--", &lv_font_montserrat_20,
-                             kWhite, 130, 296, 251, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_size(destination, 251, 52);
-    lv_label_set_long_mode(destination, LV_LABEL_LONG_DOT);
-
-    add_rule(screen, 79, 358, 308, kRule, 1);
-
-    // Both numbers and labels stay inside the circular bottom safe area.
-    // Boost intentionally remains unavailable until a real sensor is connected.
-    afr_value = make_label(screen, "--.-", &lv_font_montserrat_26,
-                           kWhite, 122, 373, 103, LV_TEXT_ALIGN_CENTER);
-    make_label(screen, "--.-", &lv_font_montserrat_26,
-               kWhite, 253, 373, 103, LV_TEXT_ALIGN_CENTER);
-    afr_label = make_label(screen, "AFR", &lv_font_montserrat_16,
-                           kBlue, 124, 412, 100, LV_TEXT_ALIGN_CENTER);
-    make_label(screen, "BOOST", &lv_font_montserrat_16,
-               kBlue, 249, 412, 102, LV_TEXT_ALIGN_CENTER);
-    add_rule(screen, 233, 376, 1, kRule, 51);
+    // AFR is the sole lower instrument and remains visible on every route.
+    // It shows --.- until a real wideband is integrated. The demo protocol
+    // is visibly labelled and must never be mistaken for a sensor reading.
+    afr_value = make_label(screen, "--.-", &lv_font_montserrat_48,
+                           kWhite, 109, 359, 248, LV_TEXT_ALIGN_CENTER);
+    afr_label = make_label(screen, "AFR", &lv_font_montserrat_20,
+                           kBlue, 146, 420, 174, LV_TEXT_ALIGN_CENTER);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
     refresh_navigation(nullptr);

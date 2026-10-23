@@ -79,6 +79,12 @@ void refresh_navigation(lv_timer_t *) {
         lv_label_set_text(street, "Start navigation");
         lv_label_set_text(destination, "--");
     }
+    // Center the wrapped street block vertically, never horizontally.
+    // Recalculate after each route update because the line count changes.
+    lv_obj_update_layout(street);
+    const int text_height = lv_obj_get_height(street);
+    const int top = 166 - (text_height / 2);
+    lv_obj_set_y(street, top < 108 ? 108 : (top > 205 ? 205 : top));
 }
 
 void draw_home() {
@@ -93,7 +99,7 @@ void draw_home() {
                             kMuted, 126, 51, 214, LV_TEXT_ALIGN_CENTER);
 
     maneuver_graphic = lv_image_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 91, 92);
+    lv_obj_set_pos(maneuver_graphic, 71, 99);
     lv_obj_set_size(maneuver_graphic, 112, 132);
     lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kWhite), 0);
     lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
@@ -103,17 +109,17 @@ void draw_home() {
 
     // Distance sits directly below the maneuver arrow.
     distance = make_label(screen, "--", &lv_font_montserrat_26,
-                          kWhite, 58, 224, 184, LV_TEXT_ALIGN_CENTER);
+                          kWhite, 54, 240, 184, LV_TEXT_ALIGN_CENTER);
     // A dedicated two-line street box prevents long road names from colliding
     // with distance or the destination section.
     street = make_label(screen, "Start navigation", &lv_font_montserrat_20,
-                        kWhite, 236, 137, 190, LV_TEXT_ALIGN_CENTER);
+                        kWhite, 231, 137, 185, LV_TEXT_ALIGN_LEFT);
     lv_label_set_long_mode(street, LV_LABEL_LONG_WRAP);
-    lv_obj_set_height(street, 86);
+    // Natural label height is needed for accurate vertical centering.
     make_label(screen, "Destination:", &lv_font_montserrat_16,
-               kMuted, 155, 252, 270);
+               kMuted, 222, 254, 205);
     destination = make_label(screen, "--", &lv_font_montserrat_20,
-                             kWhite, 155, 276, 270);
+                             kWhite, 222, 277, 205);
 
     auto *divider = lv_obj_create(screen);
     lv_obj_set_pos(divider, 79, 318);

@@ -5,6 +5,7 @@
 struct Gc8BleSnapshot {
     bool connected;
     bool has_navigation;
+    bool route_active;  // START, DEST or valid turn; independent of distance
     char maneuver[16];
     char distance[20];
     char road[48];

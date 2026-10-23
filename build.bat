@@ -14,16 +14,22 @@ if not exist "sdkconfig" (
 REM An existing local sdkconfig takes precedence over sdkconfig.defaults.
 REM Catch missing large fonts before LVGL compilation fails mysteriously.
 if exist "sdkconfig" (
+  findstr /C:"CONFIG_LV_FONT_MONTSERRAT_32=y" "sdkconfig" >nul
+  if errorlevel 1 (
+    echo ERROR: Montserrat 32 font is disabled in your local sdkconfig.
+    echo Run idf.py menuconfig and enable LVGL Montserrat 32, 40 and 48 fonts.
+    exit /b 1
+  )
   findstr /C:"CONFIG_LV_FONT_MONTSERRAT_40=y" "sdkconfig" >nul
   if errorlevel 1 (
     echo ERROR: Montserrat 40 font is disabled in your local sdkconfig.
-    echo Run idf.py menuconfig and enable LVGL Montserrat 40 and 48 fonts.
+    echo Run idf.py menuconfig and enable LVGL Montserrat 32, 40 and 48 fonts.
     exit /b 1
   )
   findstr /C:"CONFIG_LV_FONT_MONTSERRAT_48=y" "sdkconfig" >nul
   if errorlevel 1 (
     echo ERROR: Montserrat 48 font is disabled in your local sdkconfig.
-    echo Run idf.py menuconfig and enable LVGL Montserrat 40 and 48 fonts.
+    echo Run idf.py menuconfig and enable LVGL Montserrat 32, 40 and 48 fonts.
     exit /b 1
   )
 )

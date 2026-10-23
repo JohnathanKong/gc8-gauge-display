@@ -186,7 +186,7 @@ void draw_home() {
 
     make_label(screen, "GC8", &lv_font_montserrat_26,
                kBlue, 179, 24, 108, LV_TEXT_ALIGN_CENTER);
-    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_20,
+    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_24,
                             kMuted, 120, 63, 226, LV_TEXT_ALIGN_CENTER);
 
     // Original approved arrow shape, resampled to 140x165 for legibility.

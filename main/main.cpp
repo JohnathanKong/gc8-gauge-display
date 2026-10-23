@@ -117,9 +117,9 @@ void draw_home() {
     lv_label_set_long_mode(street, LV_LABEL_LONG_WRAP);
     // Natural label height is needed for accurate vertical centering.
     make_label(screen, "Destination:", &lv_font_montserrat_16,
-               kMuted, 222, 254, 205);
+               kMuted, 222, 216, 205);
     destination = make_label(screen, "--", &lv_font_montserrat_20,
-                             kWhite, 222, 277, 205);
+                             kWhite, 222, 240, 205);
 
     auto *divider = lv_obj_create(screen);
     lv_obj_set_pos(divider, 79, 318);

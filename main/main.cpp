@@ -21,7 +21,6 @@ lv_obj_t *distance = nullptr;
 lv_obj_t *street = nullptr;
 lv_obj_t *destination = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
-lv_obj_t *maneuver_note = nullptr;
 lv_obj_t *afr_value = nullptr;
 lv_obj_t *afr_status = nullptr;
 Gc8BleSnapshot previous = {};
@@ -74,13 +73,11 @@ void refresh_navigation(lv_timer_t *) {
         lv_label_set_text(distance, current.distance);
         lv_label_set_text(street, current.road);
         lv_label_set_text(destination, *current.destination ? current.destination : "Not provided");
-        lv_label_set_text(maneuver_note, "NEXT TURN");
     } else {
         draw_arrow("");
         lv_label_set_text(distance, "--");
         lv_label_set_text(street, "Start navigation");
         lv_label_set_text(destination, "--");
-        lv_label_set_text(maneuver_note, "NO ROUTE DATA");
     }
 }
 
@@ -96,7 +93,7 @@ void draw_home() {
                             kMuted, 126, 51, 214, LV_TEXT_ALIGN_CENTER);
 
     maneuver_graphic = lv_image_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 67, 106);
+    lv_obj_set_pos(maneuver_graphic, 91, 92);
     lv_obj_set_size(maneuver_graphic, 112, 132);
     lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kWhite), 0);
     lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
@@ -104,12 +101,17 @@ void draw_home() {
     lv_obj_set_style_pad_all(maneuver_graphic, 0, 0);
     lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_SCROLLABLE);
 
+    // Distance sits directly below the maneuver arrow.
     distance = make_label(screen, "--", &lv_font_montserrat_26,
-                          kWhite, 214, 126, 212);
+                          kWhite, 58, 224, 184, LV_TEXT_ALIGN_CENTER);
+    // A dedicated two-line street box prevents long road names from colliding
+    // with distance or the destination section.
     street = make_label(screen, "Start navigation", &lv_font_montserrat_20,
-                        kWhite, 214, 169, 212);
-    maneuver_note = make_label(screen, "NO ROUTE DATA", &lv_font_montserrat_16,
-                               kMuted, 214, 207, 212);
+                        kWhite, 236, 137, 190, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_long_mode(street, LV_LABEL_LONG_WRAP);
+    lv_obj_set_height(street, 86);
+    lv_obj_set_style_max_height(street, 86, 0);
+    lv_obj_set_style_align(street, LV_ALIGN_TOP_LEFT, 0);
     make_label(screen, "Destination:", &lv_font_montserrat_16,
                kMuted, 155, 252, 270);
     destination = make_label(screen, "--", &lv_font_montserrat_20,

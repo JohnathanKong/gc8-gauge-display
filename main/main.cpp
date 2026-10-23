@@ -14,8 +14,6 @@ constexpr uint32_t kBlack = 0x030609;
 constexpr uint32_t kWhite = 0xF5F9FF;
 constexpr uint32_t kMuted = 0x8297AE;
 constexpr uint32_t kBlue = 0x229EFF;
-constexpr uint32_t kRed = 0xFF526B;
-constexpr uint32_t kRule = 0x205D92;
 
 lv_obj_t *connection = nullptr;
 lv_obj_t *distance = nullptr;
@@ -38,19 +36,6 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *value, const lv_font_t *font,
     lv_obj_set_pos(obj, x, y);
     lv_label_set_long_mode(obj, LV_LABEL_LONG_DOT);
     return obj;
-}
-
-void add_rule(lv_obj_t *screen, int x, int y, int width, uint32_t color, int height) {
-    auto *rule = lv_obj_create(screen);
-    lv_obj_set_pos(rule, x, y);
-    lv_obj_set_size(rule, width, height);
-    lv_obj_set_style_bg_color(rule, lv_color_hex(color), 0);
-    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(rule, 0, 0);
-    lv_obj_set_style_radius(rule, 0, 0);
-    lv_obj_set_style_pad_all(rule, 0, 0);
-    lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
 }
 
 void add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
@@ -119,22 +104,21 @@ void draw_home() {
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Glanceable 466x466 round gauge, with generous circular safe margins.
-    // No destination row, boost field, battery placeholder or tiny captions.
-    // This is a navigation + always-visible AFR driving screen.
+    // Readable from the driver's seat: 2-column navigation above a single,
+    // centered AFR readout. All visible elements respect the 466px round edge.
+    // No destination, boost, decorative road or split gauge divider.
     cockpit_art::rasterize();
-    add_sprite(screen, &cockpit_art::road, 73, 193, kBlue);
-    add_sprite(screen, &cockpit_art::left_arc, 47, 321, kBlue);
-    add_sprite(screen, &cockpit_art::right_arc, 323, 321, kRed);
+    add_sprite(screen, &cockpit_art::afr_cradle, 93, 321, kBlue);
 
     make_label(screen, "GC8", &lv_font_montserrat_26,
-               kBlue, 179, 24, 108, LV_TEXT_ALIGN_CENTER);
-    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_24,
-                            kMuted, 120, 63, 226, LV_TEXT_ALIGN_CENTER);
+               kBlue, 179, 23, 108, LV_TEXT_ALIGN_CENTER);
+    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_20,
+                            kMuted, 119, 64, 228, LV_TEXT_ALIGN_CENTER);
 
-    // Restore the original field-tested 112x132 navigation arrow.
+    // Retain exactly the 112x132 arrow artwork the owner liked.
+    // Left column: arrow above a large, centered next-turn distance.
     maneuver_graphic = lv_image_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 87, 115);
+    lv_obj_set_pos(maneuver_graphic, 83, 106);
     lv_obj_set_size(maneuver_graphic, 112, 132);
     lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kBlue), 0);
     lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
@@ -142,26 +126,22 @@ void draw_home() {
     lv_obj_set_style_pad_all(maneuver_graphic, 0, 0);
     lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_SCROLLABLE);
 
-    // The distance is the highest-priority navigation text.
     distance = make_label(screen, "--", &lv_font_montserrat_40,
-                          kWhite, 222, 130, 185, LV_TEXT_ALIGN_LEFT);
+                          kWhite, 43, 247, 196, LV_TEXT_ALIGN_CENTER);
 
-    // Separate, broad two-line street zone; long street names ellipsize,
-    // never shrink into illegible characters or invade the AFR section.
+    // Right column: use the available height for large multi-line road text.
+    // LVGL ellipsizes only genuinely too-long road names. No overlap with AFR.
     street = make_label(screen, "Start navigation", &lv_font_montserrat_32,
-                        kWhite, 65, 270, 336, LV_TEXT_ALIGN_CENTER);
-    lv_obj_set_size(street, 336, 77);
+                        kWhite, 233, 141, 172, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_size(street, 172, 149);
     lv_label_set_long_mode(street, LV_LABEL_LONG_DOT);
 
-    add_rule(screen, 66, 351, 334, kRule, 2);
-
-    // AFR is the sole lower instrument and remains visible on every route.
-    // It shows --.- until a real wideband is integrated. The demo protocol
-    // is visibly labelled and must never be mistaken for a sensor reading.
-    afr_value = make_label(screen, "--.-", &lv_font_montserrat_48,
-                           kWhite, 109, 359, 248, LV_TEXT_ALIGN_CENTER);
+    // AFR sits ABOVE a clean, nonfunctional lower semicircle cradle. This is
+    // just a static outline, not an invented AFR safety/lean/rich scale.
     afr_label = make_label(screen, "AFR", &lv_font_montserrat_20,
-                           kBlue, 146, 420, 174, LV_TEXT_ALIGN_CENTER);
+                           kBlue, 158, 324, 150, LV_TEXT_ALIGN_CENTER);
+    afr_value = make_label(screen, "--.-", &lv_font_montserrat_48,
+                           kWhite, 101, 349, 264, LV_TEXT_ALIGN_CENTER);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
     refresh_navigation(nullptr);

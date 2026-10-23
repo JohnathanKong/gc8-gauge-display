@@ -103,9 +103,10 @@ void refresh_navigation(lv_timer_t *) {
     } else {
         draw_arrow("");
         lv_label_set_text(distance, "--");
-        // A DEST-only packet marks an active route without consuming screen
-        // space with its full address. Before Start, show a neutral idle cue.
-        const bool route_started = current.connected && current.destination[0] != '\0';
+        // START comes from a Maps navigation notification, not
+        // Accessibility or a destination string. Until a real positive
+        // maneuver distance arrives, do not invent turn guidance.
+        const bool route_started = current.connected && current.route_active;
         lv_label_set_text(street, route_started ? "Getting directions..." :
                           current.connected ? "Start navigation" : "Connect phone");
     }

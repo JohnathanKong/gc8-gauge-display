@@ -164,3 +164,24 @@ UI state note: BLE disconnected -> `Connect phone`, BLE connected but no active 
 Owner confirmed the original **112x132** navigation arrows were already readable; reverted the experimental 140x165 alpha-image resampler and restored the original 112x132 silhouettes and position. Retained large 40px next-turn distance, 32px street, 48px AFR, 24px connection status, no boost, no destination text. The firmware now accepts strict `GC8|1|START` as an additional BLE packet, sets `route_active=true` but clears stale arrow/road/distance. UI displays `Getting directions...` while active with no valid turn. `CLEAR` and BLE disconnect end the route; a real turn packet marks it active and displays its valid guidance. The former DEST packet remains understood for backwards compatibility, but the new Android companion does not send one. The phone may send an empty destination field in each turn packet for backwards protocol compatibility. No navigation URL or destination address is needed, so Android Accessibility service was removed. **Flash matching firmware and install matching Android APK** to use START; the previous firmware rejects this new packet but still supports ordinary guidance.
 
 Commits were pushed; no ESP-IDF build, APK build or actual display field test has been performed for this revision. Existing ESP-IDF local sdkconfig may require LVGL fonts Montserrat 32, 40 and 48 enabled in menuconfig as documented above.
+
+### 2026-10-23 — owner-approved direction for readability and automatic font build
+
+The owner rejected the first large-font stacked screen after seeing a code-based screenshot preview, because it looked cramped, navigation alignment was wrong, and the former AFR/boost divider made no sense with boost removed. **Current revision supersedes the earlier stacked layout:**
+
+- Split two-column navigation: original field-tested 112×132 arrow at left, prominent Montserrat 40 distance **below the arrow**, and a large Montserrat 32 multline street on the **right**; long street names ellipsize instead of shrinking.
+- Top branding and Bluetooth state remain restrained. Removed the decorative perspective roadway, boost, destination, old blue/red perimeter arcs, and all horizontal/divided gauge ornaments from this driving screen.
+- AFR is centered below the navigation, Montserrat 48 value with Montserrat 20 label. A single **U-shaped, semicircular blue cradle** wraps beneath the AFR value, implemented as a static 280×126 A8 alpha image rendered by `paint_afr_cradle()`. It has **no arc knob**, no calibration scale, and does not imply an actual measured AFR. Display remains `--.-` until a wideband signal is connected.
+- Layout coordinates are in `main/main.cpp`. A code-based rasterized screenshot preview (not actual hardware rendering) was produced for review before flashing. The design is not physically verified yet.
+
+**Build failure fixed:** The owner's Windows terminal reported `ERROR: Montserrat 32 font is disabled in your local sdkconfig` after pulling these UI changes. That was due to a stale, locally generated `sdkconfig`: `sdkconfig.defaults` alone never overwrites an existing `sdkconfig`. Instead of requiring interactive menuconfig, `build.bat` now invokes `python tools\\ensure_lvgl_fonts.py` to enable only `CONFIG_LV_FONT_MONTSERRAT_32=y`, `40=y` and `48=y` in the local config, then executes `idf.py reconfigure` and `idf.py build`. The helper was tested twice against a copy of the previously archived project `sdkconfig`: the first pass enabled each flag once; the second pass was idempotent. **The actual Windows build and Waveshare flash remain unverified.**
+
+One-path next step in VS Code's **ESP-IDF terminal** on Windows:
+
+```powershell
+git pull
+.\\build.bat
+```
+
+Wait for a successful compile before using ESP-IDF Flash Your Project on the **development board**, not the factory-reference unit. If compilation fails, capture the first actual compiler/configuration error; do not assume the new UI or local SDK automatically works.
+

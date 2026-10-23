@@ -26,6 +26,60 @@ lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
 bool first_update = true;
 
+// The navigation silhouettes are stored as A8 alpha images. LVGL v9 cannot
+// transform alpha-only sources, so build 125%-sized A8 images once at boot.
+// Keep the proven arrow silhouettes; only interpolate their antialiased mask.
+constexpr int kArrowSrcW = 112, kArrowSrcH = 132;
+constexpr int kArrowW = 140, kArrowH = 165;
+static uint8_t right_large_pixels[kArrowW * kArrowH] = {};
+static uint8_t left_large_pixels[kArrowW * kArrowH] = {};
+static uint8_t straight_large_pixels[kArrowW * kArrowH] = {};
+static const lv_image_dsc_t right_large_image = {
+    .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
+               .flags = 0, .w = kArrowW, .h = kArrowH,
+               .stride = kArrowW, .reserved_2 = 0},
+    .data_size = sizeof(right_large_pixels),
+    .data = right_large_pixels, .reserved = nullptr, .reserved_2 = nullptr
+};
+static const lv_image_dsc_t left_large_image = {
+    .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
+               .flags = 0, .w = kArrowW, .h = kArrowH,
+               .stride = kArrowW, .reserved_2 = 0},
+    .data_size = sizeof(left_large_pixels),
+    .data = left_large_pixels, .reserved = nullptr, .reserved_2 = nullptr
+};
+static const lv_image_dsc_t straight_large_image = {
+    .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
+               .flags = 0, .w = kArrowW, .h = kArrowH,
+               .stride = kArrowW, .reserved_2 = 0},
+    .data_size = sizeof(straight_large_pixels),
+    .data = straight_large_pixels, .reserved = nullptr, .reserved_2 = nullptr
+};
+
+void enlarge_mask(const uint8_t *source, uint8_t *target) {
+    for (int y = 0; y < kArrowH; ++y) {
+        const int sy = y * (kArrowSrcH - 1) * 256 / (kArrowH - 1);
+        const int top = sy >> 8, fy = sy & 255;
+        for (int x = 0; x < kArrowW; ++x) {
+            const int sx = x * (kArrowSrcW - 1) * 256 / (kArrowW - 1);
+            const int left = sx >> 8, fx = sx & 255;
+            const int i = top * kArrowSrcW + left;
+            const int a = source[i], b = source[i + 1];
+            const int d = source[i + kArrowSrcW], e = source[i + kArrowSrcW + 1];
+            const int first = a * (256 - fx) + b * fx;
+            const int second = d * (256 - fx) + e * fx;
+            target[y * kArrowW + x] =
+                static_cast<uint8_t>((first * (256 - fy) + second * fy + 32768) >> 16);
+        }
+    }
+}
+
+void rasterize_large_arrows() {
+    enlarge_mask(nav_right_pixels, right_large_pixels);
+    enlarge_mask(nav_left_pixels, left_large_pixels);
+    enlarge_mask(nav_straight_pixels, straight_large_pixels);
+}
+
 lv_obj_t *make_label(lv_obj_t *parent, const char *value, const lv_font_t *font,
                      uint32_t color, int x, int y, int width,
                      lv_text_align_t align = LV_TEXT_ALIGN_LEFT) {
@@ -67,9 +121,9 @@ void add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
 // Preserve the previously tested LEFT/RIGHT/STRAIGHT artwork and BLE protocol.
 void draw_arrow(const char *turn) {
     const lv_image_dsc_t *source = nullptr;
-    if (std::strcmp(turn, "RIGHT") == 0) source = &nav_right_image;
-    else if (std::strcmp(turn, "LEFT") == 0) source = &nav_left_image;
-    else if (std::strcmp(turn, "STRAIGHT") == 0) source = &nav_straight_image;
+    if (std::strcmp(turn, "RIGHT") == 0) source = &right_large_image;
+    else if (std::strcmp(turn, "LEFT") == 0) source = &left_large_image;
+    else if (std::strcmp(turn, "STRAIGHT") == 0) source = &straight_large_image;
     if (source) {
         lv_image_set_src(maneuver_graphic, source);
         lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_HIDDEN);
@@ -118,6 +172,7 @@ void draw_home() {
     // No destination row, boost field, battery placeholder or tiny captions.
     // This is a navigation + always-visible AFR driving screen.
     cockpit_art::rasterize();
+    rasterize_large_arrows();
     add_sprite(screen, &cockpit_art::road, 73, 193, kBlue);
     add_sprite(screen, &cockpit_art::left_arc, 47, 321, kBlue);
     add_sprite(screen, &cockpit_art::right_arc, 323, 321, kRed);
@@ -127,12 +182,10 @@ void draw_home() {
     connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_20,
                             kMuted, 120, 63, 226, LV_TEXT_ALIGN_CENTER);
 
-    // Scale the approved silhouette by 25% instead of changing its shape.
-    // At x=87,y=115 its rendered bounds remain in the round safe area.
+    // Original approved arrow shape, resampled to 140x165 for legibility.
     maneuver_graphic = lv_image_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 87, 115);
-    lv_obj_set_size(maneuver_graphic, 112, 132);
-    lv_image_set_scale(maneuver_graphic, 320); // LVGL 256 == 100%
+    lv_obj_set_pos(maneuver_graphic, 75, 103);
+    lv_obj_set_size(maneuver_graphic, kArrowW, kArrowH);
     lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kBlue), 0);
     lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(maneuver_graphic, 0, 0);

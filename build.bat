@@ -11,28 +11,15 @@ if not exist "sdkconfig" (
   call idf.py set-target esp32s3
   if errorlevel 1 exit /b 1
 )
-REM An existing local sdkconfig takes precedence over sdkconfig.defaults.
-REM Catch missing large fonts before LVGL compilation fails mysteriously.
-if exist "sdkconfig" (
-  findstr /C:"CONFIG_LV_FONT_MONTSERRAT_32=y" "sdkconfig" >nul
-  if errorlevel 1 (
-    echo ERROR: Montserrat 32 font is disabled in your local sdkconfig.
-    echo Run idf.py menuconfig and enable LVGL Montserrat 32, 40 and 48 fonts.
-    exit /b 1
-  )
-  findstr /C:"CONFIG_LV_FONT_MONTSERRAT_40=y" "sdkconfig" >nul
-  if errorlevel 1 (
-    echo ERROR: Montserrat 40 font is disabled in your local sdkconfig.
-    echo Run idf.py menuconfig and enable LVGL Montserrat 32, 40 and 48 fonts.
-    exit /b 1
-  )
-  findstr /C:"CONFIG_LV_FONT_MONTSERRAT_48=y" "sdkconfig" >nul
-  if errorlevel 1 (
-    echo ERROR: Montserrat 48 font is disabled in your local sdkconfig.
-    echo Run idf.py menuconfig and enable LVGL Montserrat 32, 40 and 48 fonts.
-    exit /b 1
-  )
-)
+REM sdkconfig.defaults does not overwrite existing local sdkconfig.
+REM Automatically migrate only the LVGL fonts required by the new screen.
+echo Checking larger LVGL fonts in local sdkconfig...
+python tools\ensure_lvgl_fonts.py
+if errorlevel 1 exit /b 1
+REM Reconfigure even on an incremental build so regenerated LVGL configuration
+REM sees the updated sdkconfig before C++ compilation begins.
+call idf.py reconfigure
+if errorlevel 1 exit /b 1
 echo Building GC8 gauge display...
 call idf.py build
 exit /b %errorlevel%

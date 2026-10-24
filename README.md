@@ -1,5 +1,14 @@
 # GC8 Gauge Display
 
+## Garage button — current working configuration (2026-10-24)
+
+**[Full end-to-end setup: Android Companion, Samsung Modes and Routines, SmartThings Garage Open/Close](https://github.com/JohnathanKong/gc8-gauge-display-android/blob/main/GARAGE_SETUP.md)**
+
+Owner reports **working** after correcting an inaccurate SmartThings **Garage Door Opener** state. The upper PWR button on the exact round **1.75C** model is read on **GPIO3**, not the TCA9554 pin used in an obsolete development note below. The Samsung phone routine listens for a GC8 Companion notification containing **Garage Trigger** and turns the SmartThings **Garage Trigger** virtual switch ON. Two SmartThings routines each require **all** conditions: virtual switch ON and actual door respectively Closed (then Open door) or Open (then Close door); each resets virtual switch OFF after the door action. The Android notification phrase merely triggers the Samsung routine and **does not** identify a SmartThings device. An ESP32 toast reporting SIGNAL SENT **does not prove door motion**.
+
+**Important:** Later hardware and routine fixes supersede the older dated 'inactive integration' passage at the end of this README. Use the linked guide, current source and the owner's tested configuration rather than following those historical notes.
+
+
 Purpose-built firmware for the **Waveshare ESP32-S3-Touch-AMOLED-1.75C Rev 1.1**. This board runs our dashboard directly; there is no Android/Linux app launcher. A separate hidden controller will eventually send real telemetry.
 
 ## Current state

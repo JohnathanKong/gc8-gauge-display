@@ -616,6 +616,7 @@ void gc8_ble_start() {
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_svc_gap_device_name_set("GC8 Display");
+    ble_svc_gap_device_appearance_set(0x03C0); // Match advertised generic HID appearance
     // Bonding is mandatory for HID input. Do not erase NVS on regular boot.
     ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
     ble_hs_cfg.sm_bonding = 1;

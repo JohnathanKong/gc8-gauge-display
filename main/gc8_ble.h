@@ -35,7 +35,8 @@ Gc8BleSnapshot gc8_ble_snapshot();
 // authorized phone app; does not run Wi-Fi or know Meross credentials.
 void gc8_ble_garage_button_pressed();
 
-// Lower BOOT short press: emits bonded Bluetooth HID Consumer Control
-// Voice Command (usage 0x0CF). Android routes this to its default
-// digital assistant (Gemini when configured); GC8 Companion is not involved.
+// Lower BOOT short press: emits a bonded Bluetooth HID Generic Desktop
+// System Power Down (0x81) long press to emulate Android's Side/Power key.
+// Samsung may handle an external POWER input differently from its built-in
+// Side key; no direct app launch or bypass of Android lock security.
 void gc8_ble_app_button_pressed();

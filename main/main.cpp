@@ -150,14 +150,14 @@ void draw_home() {
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     // Two-column navigation and an always-visible single AFR instrument.
-    // Keep the perspective roadway behind guidance at low alpha so it
+    // Keep the perspective roadway behind guidance at moderate alpha so it
     // supplies visual context without competing with the arrow/street text.
     cockpit_art::rasterize();
-    add_sprite(screen, &cockpit_art::road, 73, 186, kBlue, LV_OPA_40);
+    add_sprite(screen, &cockpit_art::road, 73, 186, kBlue, LV_OPA_80);
     add_rule(screen, 87, 307, 292);
-    // Unlit AEM-inspired 24-segment AFR sweep, not a live measurement.
+    // Wider, unlit AEM-inspired 30-segment AFR sweep, not a live measurement.
     // The handle is retained for future sensor-driven segment colouring.
-    afr_sweep_sprite = add_sprite(screen, &cockpit_art::afr_sweep, 93, 321, kBlue);
+    afr_sweep_sprite = add_sprite(screen, &cockpit_art::afr_sweep, 53, 321, kBlue);
 
     // Android synchronizes the phone-local time over BLE. Show "--:--"
     // rather than fake a clock until the first successful synchronization.
@@ -187,7 +187,7 @@ void draw_home() {
     lv_obj_set_size(street, 172, 149);
     lv_label_set_long_mode(street, LV_LABEL_LONG_DOT);
 
-    // A large AFR readout sits inside a 24-segment LED-style sweep.
+    // A large AFR readout sits inside a wide 30-segment LED-style sweep.
     // The segments have no active needle or measured range until a calibrated
     // wideband is connected; colours stay static and do not imply safety.
     afr_label = make_label(screen, "AFR", &lv_font_montserrat_20,

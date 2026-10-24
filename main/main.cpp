@@ -210,7 +210,6 @@ void draw_home() {
 
     // Reference-matched 466px round cockpit. Layers: atmospheric road,
     // segmented rim gauge, fine dividers, then white text and blue arrow.
-    cockpit_art::rasterize();
     if (cockpit_art::road.data) {
         add_sprite(screen, &cockpit_art::road,
                    cockpit_art::road_x, cockpit_art::road_y, kBlue,
@@ -325,6 +324,9 @@ void draw_home() {
 
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Starting GC8 cockpit navigation dashboard");
+    // Generate the PSRAM-backed artwork before acquiring LVGL's render lock.
+    // No heavy atan2/exp loop runs inside the UI refresh/render critical path.
+    cockpit_art::rasterize();
     bsp_display_start();
     bsp_display_lock(-1);
     draw_home();

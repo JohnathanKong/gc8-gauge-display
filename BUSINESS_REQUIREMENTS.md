@@ -1,8 +1,8 @@
 # GC8 Digital Companion — Business Requirements & Continuation Guide
 
 **Document ID:** GC8-BRD-001  
-**Version:** 1.2  
-**Last updated:** 2026-10-21  
+**Version:** 1.3  
+**Last updated:** 2026-10-24  
 **Status:** Working baseline; individual integration capabilities require validation  
 
 > **Garage integration update — 2026-10-24:** Owner reports the upper Waveshare PWR → BLE → Android GC8 Companion → Samsung Modes and Routines → SmartThings **Garage Trigger** virtual switch → **Garage Open / Garage Close** routines works after correcting an incorrect SmartThings garage-door state. SmartThings routines require **ALL conditions** (virtual switch ON plus actual door Closed/Open) and reset the virtual switch to OFF after the door command. The exact Garage Open configuration was documented by screenshot; Garage Close was reported working but not separately pictured. This is a later convenience feature, separate from the original phone/navigation milestone. **[Current installation, exact routines, test steps, failures and security limitations](https://github.com/JohnathanKong/gc8-gauge-display-android/blob/main/GARAGE_SETUP.md).** Dated milestone checkboxes and older garage notes below describe their original historical state and should not be interpreted as overriding this update.

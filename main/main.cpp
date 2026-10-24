@@ -24,6 +24,7 @@ lv_obj_t *distance = nullptr;
 lv_obj_t *street = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
 lv_obj_t *afr_value = nullptr;
+lv_obj_t *afr_cradle_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
 bool first_update = true;
@@ -42,9 +43,9 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *value, const lv_font_t *font,
     return obj;
 }
 
-void add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
-                int x, int y, uint32_t color,
-                lv_opa_t opacity = LV_OPA_COVER) {
+lv_obj_t *add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
+                     int x, int y, uint32_t color,
+                     lv_opa_t opacity = LV_OPA_COVER) {
     auto *sprite = lv_image_create(screen);
     lv_image_set_src(sprite, source);
     lv_obj_set_pos(sprite, x, y);
@@ -53,6 +54,7 @@ void add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
     lv_obj_set_style_image_opa(sprite, opacity, 0);
     lv_obj_remove_flag(sprite, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(sprite, LV_OBJ_FLAG_CLICKABLE);
+    return sprite;
 }
 
 void add_rule(lv_obj_t *screen, int x, int y, int width) {
@@ -153,7 +155,9 @@ void draw_home() {
     cockpit_art::rasterize();
     add_sprite(screen, &cockpit_art::road, 73, 186, kBlue, LV_OPA_40);
     add_rule(screen, 87, 307, 292);
-    add_sprite(screen, &cockpit_art::afr_cradle, 93, 321, kBlue);
+    // Keep the cradle object so validated live AFR readings can recolor it
+    // when the wideband is eventually installed. For now it stays blue.
+    afr_cradle_sprite = add_sprite(screen, &cockpit_art::afr_cradle, 93, 321, kBlue);
 
     // Android synchronizes the phone-local time over BLE. Show "--:--"
     // rather than fake a clock until the first successful synchronization.

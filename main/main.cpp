@@ -221,6 +221,10 @@ void refresh_navigation(lv_timer_t *) {
             lv_label_set_text(idle_heading, "GC8 COMPANION");
             lv_label_set_text(idle_title, "CONNECT PHONE");
             lv_label_set_text(idle_hint, "OPEN COMPANION TO PAIR");
+        } else if (current.route_active && current.guidance_stale) {
+            lv_label_set_text(idle_heading, "GOOGLE MAPS");
+            lv_label_set_text(idle_title, "GUIDANCE PAUSED");
+            lv_label_set_text(idle_hint, "WAITING FOR MAPS");
         } else if (current.route_active) {
             lv_label_set_text(idle_heading, "GOOGLE MAPS");
             lv_label_set_text(idle_title, "ROUTE STARTED");

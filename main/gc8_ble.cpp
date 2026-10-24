@@ -106,7 +106,7 @@ bool parse_test_message(char *buffer) {
     if (std::strncmp(buffer, kGarageResult, sizeof(kGarageResult)-1) == 0) {
         const char *result = buffer + sizeof(kGarageResult)-1;
         if (std::strcmp(result, "NOT_READY") == 0) show_garage_banner("GARAGE NOT SET UP");
-        else if (std::strcmp(result, "SENT") == 0) show_garage_banner("GARAGE CMD SENT");
+        else if (std::strcmp(result, "SENT") == 0) show_garage_banner("GARAGE SIGNAL SENT");
         else if (std::strcmp(result, "FAILED") == 0) show_garage_banner("GARAGE CMD FAILED");
         else return false;
         return true;

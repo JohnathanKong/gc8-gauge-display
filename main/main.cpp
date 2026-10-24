@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "gc8_ble.h"
 #include "device_power.h"
+#include "garage_button.h"
 #include "nav_arrow_assets.h"
 #include "cockpit_art.h"
 #include "lvgl.h"
@@ -35,6 +36,10 @@ lv_obj_t *idle_panel = nullptr;
 lv_obj_t *idle_heading = nullptr;
 lv_obj_t *idle_title = nullptr;
 lv_obj_t *idle_hint = nullptr;
+lv_obj_t *garage_toast = nullptr;
+lv_obj_t *garage_toast_text = nullptr;
+bool garage_toast_visible = false;
+char garage_previous_text[32] = {};
 int last_device_battery = -2;
 bool last_battery_charging = false;
 lv_obj_t *afr_sweep_sprite = nullptr;
@@ -128,6 +133,38 @@ void draw_arrow(const char *turn) {
 
 void refresh_navigation(lv_timer_t *) {
     const auto current = gc8_ble_snapshot();
+
+    // Evaluate the transient overlay BEFORE the snapshot-change guard, so
+    // it disappears on time even when Maps/BLE are completely idle.
+    const bool banner_active = current.garage_banner[0] &&
+        esp_timer_get_time() < current.garage_banner_until_us;
+    if (banner_active) {
+        if (!garage_toast_visible ||
+            std::strcmp(garage_previous_text, current.garage_banner) != 0) {
+            lv_label_set_text(garage_toast_text, current.garage_banner);
+            std::snprintf(garage_previous_text, sizeof(garage_previous_text),
+                          "%s", current.garage_banner);
+            lv_obj_remove_flag(garage_toast, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(garage_toast);
+            // Slide down over the navigation for a few seconds. Clock and
+            // existing full-circle dashboard are not modified or redrawn.
+            lv_anim_delete(garage_toast, nullptr);
+            lv_anim_t slide;
+            lv_anim_init(&slide);
+            lv_anim_set_var(&slide, garage_toast);
+            lv_anim_set_values(&slide, -64, 113);
+            lv_anim_set_duration(&slide, 230);
+            lv_anim_set_exec_cb(&slide, [](void *obj, int32_t y) {
+                lv_obj_set_y(static_cast<lv_obj_t *>(obj), y);
+            });
+            lv_anim_start(&slide);
+        }
+        garage_toast_visible = true;
+    } else if (garage_toast_visible) {
+        garage_toast_visible = false;
+        lv_anim_delete(garage_toast, nullptr);
+        lv_obj_add_flag(garage_toast, LV_OBJ_FLAG_HIDDEN);
+    }
 
     // The clock advances independently of navigation packets. A phone sync
     // sets local wall time and 12/24h preference; monotonic ESP32 uptime
@@ -382,6 +419,25 @@ void draw_home() {
     afr_value = make_label(screen, "--.-", &lv_font_montserrat_48,
                            kWhite, 104, 363, 258, LV_TEXT_ALIGN_CENTER);
 
+    // A small drop-down overlay for upper PWR / Meross requests. Only an
+    // acknowledged command can say SENT; local button receipt says REQUESTED.
+    // Stays independent of both navigation and AFR screen states.
+    garage_toast = lv_obj_create(screen);
+    lv_obj_set_pos(garage_toast, 56, -64);
+    lv_obj_set_size(garage_toast, 354, 62);
+    lv_obj_set_style_radius(garage_toast, 14, 0);
+    lv_obj_set_style_bg_color(garage_toast, lv_color_hex(0x07182A), 0);
+    lv_obj_set_style_bg_opa(garage_toast, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(garage_toast, lv_color_hex(kBlue), 0);
+    lv_obj_set_style_border_opa(garage_toast, LV_OPA_80, 0);
+    lv_obj_set_style_border_width(garage_toast, 2, 0);
+    lv_obj_set_style_pad_all(garage_toast, 0, 0);
+    lv_obj_remove_flag(garage_toast, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(garage_toast, LV_OBJ_FLAG_CLICKABLE);
+    garage_toast_text = make_label(garage_toast, "", &lv_font_montserrat_20,
+                                  kWhite, 10, 19, 334, LV_TEXT_ALIGN_CENTER);
+    lv_obj_add_flag(garage_toast, LV_OBJ_FLAG_HIDDEN);
+
     lv_timer_create(refresh_navigation, 250, nullptr);
     refresh_navigation(nullptr);
 }
@@ -398,4 +454,5 @@ extern "C" void app_main(void) {
     bsp_display_unlock();
     device_power_start(); // Sample genuine battery on BSP's shared I2C bus.
     gc8_ble_start();
+    garage_button_start(); // Upper PWR only; BOOT remains available for flashing.
 }

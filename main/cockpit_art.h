@@ -14,7 +14,7 @@ constexpr int battery_w = 26, battery_h = 14;
 // AEM-inspired 24-segment AFR sweep around the lower readout, inactive
 // until an actual calibrated AFR sensor is connected. No invented needle,
 // safety range, live AFR value or LVGL arc knob.
-constexpr int sweep_w = 280, sweep_h = 126;
+constexpr int sweep_w = 360, sweep_h = 126;
 
 static uint8_t road_pixels[road_w * road_h] = {};
 static uint8_t left_arc_pixels[arc_w * arc_h] = {};
@@ -157,10 +157,10 @@ inline void paint_battery() {
 // Paint once at boot into an A8 texture, so the LVGL refresh stays cheap.
 inline void paint_afr_sweep() {
     constexpr float pi = 3.14159265359f;
-    constexpr float rx = 130.0f;
+    constexpr float rx = 166.0f;
     constexpr float ry = 116.0f;
     constexpr float center_x = (sweep_w - 1) * 0.5f;
-    constexpr int segments = 24;
+    constexpr int segments = 30;
     for (int y = 0; y < sweep_h; ++y) {
         const float ny = static_cast<float>(y) / ry;
         for (int x = 0; x < sweep_w; ++x) {
@@ -173,7 +173,7 @@ inline void paint_afr_sweep() {
             const float position = angle * segments / pi;
             const int segment = static_cast<int>(position);
             const float within = position - segment;
-            // Faint connecting base and 24 individual, gently illuminated
+            // Faint connecting base and 30 individual, gently illuminated
             // blocks. Every sixth mark is stronger like a gauge graduation.
             float alpha = 24.0f * bell(distance, 8.5f);
             if (within >= 0.16f && within <= 0.84f) {

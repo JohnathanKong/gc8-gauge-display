@@ -11,16 +11,17 @@ constexpr int road_w = 320, road_h = 82;
 constexpr int arc_w = 96, arc_h = 96;
 constexpr int flag_w = 34, flag_h = 36;
 constexpr int battery_w = 26, battery_h = 14;
-// A discrete U-shaped alpha image, open at top and cradling the AFR number.
-// No LVGL arc knob, ticks, warning zones or calibrated AFR colour scale.
-constexpr int cradle_w = 280, cradle_h = 126;
+// AEM-inspired 24-segment AFR sweep around the lower readout, inactive
+// until an actual calibrated AFR sensor is connected. No invented needle,
+// safety range, live AFR value or LVGL arc knob.
+constexpr int sweep_w = 280, sweep_h = 126;
 
 static uint8_t road_pixels[road_w * road_h] = {};
 static uint8_t left_arc_pixels[arc_w * arc_h] = {};
 static uint8_t right_arc_pixels[arc_w * arc_h] = {};
 static uint8_t flag_pixels[flag_w * flag_h] = {};
 static uint8_t battery_pixels[battery_w * battery_h] = {};
-static uint8_t cradle_pixels[cradle_w * cradle_h] = {};
+static uint8_t sweep_pixels[sweep_w * sweep_h] = {};
 
 static const lv_image_dsc_t road = {
     .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
@@ -40,11 +41,11 @@ static const lv_image_dsc_t right_arc = {
     .data_size = sizeof(right_arc_pixels), .data = right_arc_pixels,
     .reserved = nullptr, .reserved_2 = nullptr
 };
-static const lv_image_dsc_t afr_cradle = {
+static const lv_image_dsc_t afr_sweep = {
     .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
-               .flags = 0, .w = cradle_w, .h = cradle_h,
-               .stride = cradle_w, .reserved_2 = 0},
-    .data_size = sizeof(cradle_pixels), .data = cradle_pixels,
+               .flags = 0, .w = sweep_w, .h = sweep_h,
+               .stride = sweep_w, .reserved_2 = 0},
+    .data_size = sizeof(sweep_pixels), .data = sweep_pixels,
     .reserved = nullptr, .reserved_2 = nullptr
 };
 static const lv_image_dsc_t finish_flag = {
@@ -150,22 +151,38 @@ inline void paint_battery() {
         }
     }
 }
-// Continuous lower half of a narrow ellipse, centered under the AFR value.
-// The radius stays inside the lower circular display boundary.
-inline void paint_afr_cradle() {
+// Discrete LED-like rectangular blocks around the lower AFR gauge sweep.
+// The physical AEM X-Series uses an LED-sweep reference; our current sweep is
+// neutral blue and does not display an artificial sensor position/value.
+// Paint once at boot into an A8 texture, so the LVGL refresh stays cheap.
+inline void paint_afr_sweep() {
+    constexpr float pi = 3.14159265359f;
     constexpr float rx = 130.0f;
     constexpr float ry = 116.0f;
-    constexpr float center_x = (cradle_w - 1) * 0.5f;
-    for (int y = 0; y < cradle_h; ++y) {
-        for (int x = 0; x < cradle_w; ++x) {
-            const float nx = (x - center_x) / rx;
-            const float ny = static_cast<float>(y) / ry;
-            const float ellipse = std::sqrt(nx * nx + ny * ny);
-            // Signed radial distance in approximate screen pixels.
-            const float distance = (ellipse - 1.0f) * 119.0f;
-            const float glow = 27.0f * bell(distance, 7.0f);
-            const float core = 175.0f * bell(distance, 1.55f);
-            cradle_pixels[y * cradle_w + x] = clamp_alpha(glow + core);
+    constexpr float center_x = (sweep_w - 1) * 0.5f;
+    constexpr int segments = 24;
+    for (int y = 0; y < sweep_h; ++y) {
+        const float ny = static_cast<float>(y) / ry;
+        for (int x = 0; x < sweep_w; ++x) {
+            const float nx = (static_cast<float>(x) - center_x) / rx;
+            const float angle = std::atan2(ny, nx);
+            if (angle < 0.0f || angle > pi) continue;
+            const float radius = std::sqrt(nx * nx + ny * ny);
+            const float distance = (radius - 1.0f) * 119.0f;
+            if (std::fabs(distance) > 13.0f) continue;
+            const float position = angle * segments / pi;
+            const int segment = static_cast<int>(position);
+            const float within = position - segment;
+            // Faint connecting base and 24 individual, gently illuminated
+            // blocks. Every sixth mark is stronger like a gauge graduation.
+            float alpha = 24.0f * bell(distance, 8.5f);
+            if (within >= 0.16f && within <= 0.84f) {
+                const float brightness = segment % 6 == 0 ? 175.0f : 125.0f;
+                alpha += std::fabs(distance) <= 4.0f
+                    ? brightness
+                    : brightness * bell(std::fabs(distance) - 4.0f, 2.2f);
+            }
+            sweep_pixels[y * sweep_w + x] = clamp_alpha(alpha);
         }
     }
 }
@@ -177,7 +194,7 @@ inline void rasterize() {
     paint_arc(right_arc_pixels, 323, 30.0f, 57.0f);
     paint_flag();
     paint_battery();
-    paint_afr_cradle();
+    paint_afr_sweep();
     initialized = true;
 }
 } // namespace cockpit_art

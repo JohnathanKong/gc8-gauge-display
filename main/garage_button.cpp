@@ -54,7 +54,7 @@ void poll_task(void *) {
     bool stable = false, raw_prev = false, initialized = false;
     int same_readings = 0;
     int64_t pressed_at = 0, last_accepted_at = -kCooldownUs;
-    ESP_LOGI(TAG, "Monitoring upper PWR on GPIO3 (HIGH=pressed); BOOT untouched");
+    ESP_LOGI(TAG, "Monitoring PWR GPIO3 (garage) + BOOT GPIO0 (HID voice)");
     for (;;) {
         const bool raw = gpio_get_level(kPwrSensePin) != 0;
         if (raw == raw_prev) ++same_readings;
@@ -105,7 +105,7 @@ void poll_task(void *) {
                     if (duration >= kMinPressUs && duration <= kMaxPressUs &&
                         now - boot_last_at >= kBootCooldownUs) {
                         boot_last_at = now;
-                        ESP_LOGI(TAG, "Lower BOOT pressed; sending configured app action");
+                        ESP_LOGI(TAG, "Lower BOOT pressed; sending Android HID voice key");
                         gc8_ble_app_button_pressed();
                     }
                 }

@@ -148,18 +148,6 @@ bool parse_test_message(char *buffer) {
         else return false;
         return true;
     }
-    // Lower BOOT app launch is separate from garage control.
-    // Replies only describe Android handoff, never that the app became ready.
-    constexpr char kAppResult[] = "GC8|1|APP|RESULT|";
-    if (std::strncmp(buffer, kAppResult, sizeof(kAppResult) - 1) == 0) {
-        const char *result = buffer + sizeof(kAppResult) - 1;
-        if (std::strcmp(result, "OPENED") == 0) show_garage_banner("APP OPEN REQUESTED");
-        else if (std::strcmp(result, "ALERT") == 0) show_garage_banner("TAP PHONE NOTICE");
-        else if (std::strcmp(result, "SETUP") == 0) show_garage_banner("SET BOOT APP");
-        else if (std::strcmp(result, "FAILED") == 0) show_garage_banner("APP ACTION FAILED");
-        else return false;
-        return true;
-    }
     // Phone-local clock sync; no ESP32 Wi-Fi, GPS or RTC required.
     // GC8|1|TIME|HH:MM:SS|12 (or |24). Re-sync from Android every minute
     // to follow user clock preferences, daylight saving and timezone changes.

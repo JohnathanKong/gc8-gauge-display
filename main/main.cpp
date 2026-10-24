@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "gc8_ble.h"
+#include "device_power.h"
 #include "nav_arrow_assets.h"
 #include "cockpit_art.h"
 #include "lvgl.h"
@@ -29,6 +30,13 @@ lv_obj_t *battery_percent = nullptr;
 lv_obj_t *battery_fill = nullptr;
 lv_obj_t *battery_outline = nullptr;
 lv_obj_t *battery_tip = nullptr;
+lv_obj_t *nav_separator = nullptr;
+lv_obj_t *idle_panel = nullptr;
+lv_obj_t *idle_heading = nullptr;
+lv_obj_t *idle_title = nullptr;
+lv_obj_t *idle_hint = nullptr;
+int last_device_battery = -2;
+bool last_battery_charging = false;
 lv_obj_t *afr_sweep_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
@@ -64,8 +72,8 @@ lv_obj_t *add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
 
 // Deliberately separate dividers: both header rules, the vertical
 // navigation separator, and the strong horizontal navigation/AFR boundary.
-void add_rule(lv_obj_t *screen, int x, int y, int width, int height,
-              uint32_t color = kRule, lv_opa_t opacity = LV_OPA_COVER) {
+lv_obj_t *add_rule(lv_obj_t *screen, int x, int y, int width, int height,
+                    uint32_t color = kRule, lv_opa_t opacity = LV_OPA_COVER) {
     auto *rule = lv_obj_create(screen);
     lv_obj_set_pos(rule, x, y);
     lv_obj_set_size(rule, width, height);
@@ -76,6 +84,7 @@ void add_rule(lv_obj_t *screen, int x, int y, int width, int height,
     lv_obj_set_style_pad_all(rule, 0, 0);
     lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
+    return rule;
 }
 
 // Two thin concentric outlines give the circular screen the instrument
@@ -148,24 +157,33 @@ void refresh_navigation(lv_timer_t *) {
     previous = current;
 
     lv_label_set_text(connection, current.connected ? "BLE CONNECTED" : "BLE WAITING");
-    // Battery refers to the connected PHONE, not an uninstrumented vehicle
-    // battery. Hide the icon/value when no verified Android reading exists.
-    const bool battery_known = current.connected && current.has_phone_battery;
-    if (battery_known) {
-        char pct[8];
-        std::snprintf(pct, sizeof(pct), "%u%%",
-                      static_cast<unsigned>(current.phone_battery_percent));
-        lv_label_set_text(battery_percent, pct);
-        lv_obj_set_width(battery_fill, current.phone_battery_percent * 17 / 100);
-        lv_obj_remove_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(battery_tip, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(battery_tip, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
+    // Device battery (AXP2101 PMIC); not phone battery and not guessed from
+    // USB power. The monitor polls in a FreeRTOS task outside LVGL.
+    const auto power = device_power_snapshot();
+    const int power_percent = power.valid ? static_cast<int>(power.percent) : -1;
+    if (power_percent != last_device_battery ||
+        power.charging != last_battery_charging) {
+        last_device_battery = power_percent;
+        last_battery_charging = power.charging;
+        if (power.valid) {
+            char pct[8];
+            std::snprintf(pct, sizeof(pct), "%u%%",
+                          static_cast<unsigned>(power.percent));
+            lv_label_set_text(battery_percent, pct);
+            lv_obj_set_width(battery_fill, power.percent == 0 ? 1 :
+                             static_cast<int>(power.percent) * 17 / 100);
+            const uint32_t power_color = power.charging ? kBlue : kWhite;
+            lv_obj_set_style_bg_color(battery_fill, lv_color_hex(power_color), 0);
+            lv_obj_remove_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(battery_tip, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(battery_tip, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
+        }
     }
     if (current.connected && current.has_demo_afr) {
         lv_label_set_text(afr_value, current.demo_afr);
@@ -175,29 +193,40 @@ void refresh_navigation(lv_timer_t *) {
         lv_label_set_text(afr_label, "AFR");
     }
 
-    // Driving view deliberately omits destination: a postal address is too
-    // verbose to read safely from a small gauge mounted far from the driver.
-    // BLE still accepts/stores destination for a future details page.
-    if (current.connected && current.has_navigation) {
+    // The default screen is NOT a broken navigation layout with '--' and
+    // half-empty columns. Idle and route-acquiring states get a full-width
+    // centered status panel above the permanent AFR gauge.
+    const bool has_turn = current.connected && current.has_navigation;
+    if (has_turn) {
+        lv_obj_add_flag(idle_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(distance, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(street, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(nav_separator, LV_OBJ_FLAG_HIDDEN);
         draw_arrow(current.maneuver);
         lv_label_set_text(distance, current.distance);
-        // Use 32px for common short roads; 26px for long compound names.
-        // This is still large enough for a quick glance but gives longer
-        // roads more real estate than the previous narrow right column.
         lv_obj_set_style_text_font(street,
             std::strlen(current.road) > 27 ? &lv_font_montserrat_26 :
                                             &lv_font_montserrat_32, 0);
         lv_label_set_text(street, current.road);
     } else {
         draw_arrow("");
-        lv_label_set_text(distance, "--");
-        lv_obj_set_style_text_font(street, &lv_font_montserrat_26, 0);
-        // START comes from a Maps navigation notification, not
-        // Accessibility or a destination string. Until a real positive
-        // maneuver distance arrives, do not invent turn guidance.
-        const bool route_started = current.connected && current.route_active;
-        lv_label_set_text(street, route_started ? "Getting directions..." :
-                          current.connected ? "Start navigation" : "Connect phone");
+        lv_obj_add_flag(distance, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(street, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(nav_separator, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_HIDDEN);
+        if (!current.connected) {
+            lv_label_set_text(idle_heading, "GC8 COMPANION");
+            lv_label_set_text(idle_title, "CONNECT PHONE");
+            lv_label_set_text(idle_hint, "OPEN COMPANION TO PAIR");
+        } else if (current.route_active) {
+            lv_label_set_text(idle_heading, "GOOGLE MAPS");
+            lv_label_set_text(idle_title, "ROUTE STARTED");
+            lv_label_set_text(idle_hint, "WAITING FOR FIRST TURN");
+        } else {
+            lv_label_set_text(idle_heading, "NAVIGATION");
+            lv_label_set_text(idle_title, "READY");
+            lv_label_set_text(idle_hint, "START GOOGLE MAPS");
+        }
     }
 }
 
@@ -228,7 +257,7 @@ void draw_home() {
     // rule fragments, vertical arrow/street separator, and AFR horizon line.
     add_rule(screen, 48, 79, 93, 1, 0x2A5474, LV_OPA_60);
     add_rule(screen, 309, 79, 31, 1, 0x2A5474, LV_OPA_60);
-    add_rule(screen, 194, 120, 2, 140, kBlue, LV_OPA_50);
+    nav_separator = add_rule(screen, 194, 120, 2, 140, kBlue, LV_OPA_50);
     add_rule(screen, 42, 310, 382, 2, kBlue, LV_OPA_80);
 
     // Phone-clock, not an invented ESP32 date: "--:--" until first sync.
@@ -237,7 +266,7 @@ void draw_home() {
     connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_16,
                             kMuted, 131, 85, 203, LV_TEXT_ALIGN_CENTER);
 
-    // Real Android phone battery in the top-right only when available.
+    // Real Waveshare battery in the top-right, only with a valid AXP2101 reading.
     battery_outline = lv_obj_create(screen);
     lv_obj_set_pos(battery_outline, 338, 88);
     lv_obj_set_size(battery_outline, 26, 14);
@@ -248,7 +277,7 @@ void draw_home() {
     lv_obj_set_style_pad_all(battery_outline, 0, 0);
     lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_CLICKABLE);
-    // Small exposed terminal completes the phone battery icon.
+    // Small exposed terminal completes the Waveshare battery icon.
     battery_tip = lv_obj_create(screen);
     lv_obj_set_pos(battery_tip, 365, 93);
     lv_obj_set_size(battery_tip, 3, 5);
@@ -310,6 +339,35 @@ void draw_home() {
     lv_obj_set_size(street, 224, 162);
     lv_label_set_long_mode(street, LV_LABEL_LONG_DOT);
 
+    // Stylish centered standby overlay, occupying the complete navigation
+    // zone until a real direction arrives. It doesn't obscure the time,
+    // PMIC battery or the persistent AFR readout.
+    idle_panel = lv_obj_create(screen);
+    lv_obj_set_pos(idle_panel, 32, 126);
+    lv_obj_set_size(idle_panel, 402, 168);
+    lv_obj_set_style_radius(idle_panel, 27, 0);
+    lv_obj_set_style_bg_color(idle_panel, lv_color_hex(0x061523), 0);
+    lv_obj_set_style_bg_opa(idle_panel, LV_OPA_80, 0);
+    lv_obj_set_style_border_color(idle_panel, lv_color_hex(kRule), 0);
+    lv_obj_set_style_border_width(idle_panel, 1, 0);
+    lv_obj_set_style_border_opa(idle_panel, LV_OPA_80, 0);
+    lv_obj_set_style_pad_all(idle_panel, 0, 0);
+    lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_CLICKABLE);
+
+    // Layered internal rules turn an otherwise empty dashboard into a clear,
+    // intentional status surface, without imitating a navigation arrow.
+    add_rule(idle_panel, 47, 26, 93, 1, kBlue, LV_OPA_50);
+    add_rule(idle_panel, 262, 26, 93, 1, kBlue, LV_OPA_50);
+    idle_heading = make_label(idle_panel, "NAVIGATION", &lv_font_montserrat_20,
+                              kBlue, 77, 17, 248, LV_TEXT_ALIGN_CENTER);
+    idle_title = make_label(idle_panel, "READY", &lv_font_montserrat_40,
+                            kWhite, 20, 55, 362, LV_TEXT_ALIGN_CENTER);
+    add_rule(idle_panel, 122, 118, 158, 1, kRule, LV_OPA_50);
+    idle_hint = make_label(idle_panel, "START GOOGLE MAPS",
+                           &lv_font_montserrat_20,
+                           kMuted, 20, 131, 362, LV_TEXT_ALIGN_CENTER);
+
     // AEM-inspired, near-rim 30-segment display; blue is decorative until
     // actual wideband measurements and meaningful thresholds exist.
     afr_label = make_label(screen, "WIDEBAND AFR", &lv_font_montserrat_20,
@@ -331,5 +389,6 @@ extern "C" void app_main(void) {
     bsp_display_lock(-1);
     draw_home();
     bsp_display_unlock();
+    device_power_start(); // Sample genuine battery on BSP's shared I2C bus.
     gc8_ble_start();
 }

@@ -3,7 +3,7 @@
 
 #include <cstdint>
 #include "bsp/esp-bsp.h"
-#include "driver/i2c_master.h"
+#include "esp_io_expander.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -12,42 +12,30 @@
 
 namespace {
 constexpr char TAG[] = "gc8_garage_button";
-constexpr uint16_t kExpanderAddress = 0x20;  // TCA9554
-constexpr uint8_t kInputPortReg = 0x00;      // Read ONLY: never change BSP I/O output state.
-constexpr uint8_t kPwrMask = 1u << 4;       // SYS_OUT HIGH while upper PWR is held.
+constexpr uint32_t kPwrMask = IO_EXPANDER_PIN_NUM_4; // SYS_OUT high while upper PWR held.
 constexpr int64_t kMinPressUs = 75000;
 constexpr int64_t kMaxPressUs = 1200000;    // Long press belongs to AXP2101 power logic.
 constexpr int64_t kCooldownUs = 6000000;    // Prevent inadvertent double-toggle.
 constexpr int kSampleMs = 35;
 
-i2c_master_dev_handle_t expander = nullptr;
+esp_io_expander_handle_t expander = nullptr;
 
 bool read_upper_button(bool &pressed) {
-    uint8_t reg = kInputPortReg, port = 0;
+    uint32_t levels = 0;
     if (!expander ||
-        i2c_master_transmit_receive(expander, &reg, 1, &port, 1, 100) != ESP_OK)
+        esp_io_expander_get_level(expander, kPwrMask, &levels) != ESP_OK)
         return false;
-    pressed = (port & kPwrMask) != 0;
+    pressed = (levels & kPwrMask) != 0;
     return true;
 }
 
 void poll_task(void *) {
-    // Share the existing I2C bus with the display, AXP2101 and touch.
-    // We add only a read-only device handle for the TCA9554.
-    auto *bus = bsp_i2c_get_handle();
-    if (!bus) {
-        ESP_LOGW(TAG, "No I2C bus; garage button disabled");
-        vTaskDelete(nullptr);
-        return;
-    }
-    i2c_device_config_t config = {};
-    config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    config.device_address = kExpanderAddress;
-    config.scl_speed_hz = 100000;
-    const esp_err_t err = i2c_master_bus_add_device(bus, &config, &expander);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Could not register PWR button expander: %s",
-                 esp_err_to_name(err));
+    // Reuse the BSP's existing TCA9554 instance and shared I2C bus.
+    // Adding a second independent device at 0x20 can conflict with the
+    // audio/display expander driver, so do not create one.
+    expander = bsp_io_expander_init();
+    if (!expander) {
+        ESP_LOGW(TAG, "BSP TCA9554 unavailable; garage button disabled");
         vTaskDelete(nullptr);
         return;
     }

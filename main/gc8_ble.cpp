@@ -34,6 +34,9 @@ static const ble_uuid128_t garage_event_uuid = BLE_UUID128_INIT(
 // Standard HID-over-GATT Consumer Control (0x1812). Android handles this
 // input itself, even when GC8 Companion is not the foreground Activity.
 static const ble_uuid16_t hid_service_uuid = BLE_UUID16_INIT(0x1812);
+// HID-over-GATT hosts also discover the Device Information PnP ID.
+static const ble_uuid16_t device_info_uuid = BLE_UUID16_INIT(0x180A);
+static const ble_uuid16_t pnp_id_uuid = BLE_UUID16_INIT(0x2A50);
 static const ble_uuid16_t hid_info_uuid = BLE_UUID16_INIT(0x2A4A);
 static const ble_uuid16_t hid_report_map_uuid = BLE_UUID16_INIT(0x2A4B);
 static const ble_uuid16_t hid_control_uuid = BLE_UUID16_INIT(0x2A4C);
@@ -62,6 +65,9 @@ constexpr uint8_t hid_report_map[] = {
 };
 constexpr uint8_t hid_info[] = {0x11, 0x01, 0x00, 0x02}; // HID 1.11, normally connectable
 constexpr uint8_t hid_report_reference[] = {0x01, 0x01}; // ID 1, input report
+// USB-IF vendor Espressif 0x303A (ESP32-S3 silicon), product 0x0001,
+// firmware rev 0x0100. Describes the private GC8 HID function, not a USB port.
+constexpr uint8_t hid_pnp_id[] = {0x02, 0x3A, 0x30, 0x01, 0x00, 0x00, 0x01};
 std::atomic<bool> hid_subscribed{false};
 std::atomic<uint16_t> hid_connection_handle{0};
 uint16_t hid_report_value_handle = 0;
@@ -374,12 +380,17 @@ int hid_control_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
         return BLE_ATT_ERR_UNLIKELY;
     return 0;
 }
+int hid_pnp_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
+    if (ctx->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    return hid_append(ctx, hid_pnp_id, sizeof(hid_pnp_id));
+}
+ble_gatt_chr_def device_info_characteristics[2] = {};
 ble_gatt_dsc_def hid_report_descriptors[2] = {};
 ble_gatt_chr_def hid_characteristics[6] = {};
 
 // Zero-initialize NimBLE C structs; C++ -Wmissing-field-initializers is an error.
 ble_gatt_chr_def characteristics[3] = {};
-ble_gatt_svc_def services[3] = {};
+ble_gatt_svc_def services[4] = {};
 void configure_gatt() {
     characteristics[0].uuid = &write_uuid.u;
     characteristics[0].access_cb = on_write;
@@ -426,6 +437,12 @@ void configure_gatt() {
     services[1].type = BLE_GATT_SVC_TYPE_PRIMARY;
     services[1].uuid = &hid_service_uuid.u;
     services[1].characteristics = hid_characteristics;
+    device_info_characteristics[0].uuid = &pnp_id_uuid.u;
+    device_info_characteristics[0].access_cb = hid_pnp_access;
+    device_info_characteristics[0].flags = BLE_GATT_CHR_F_READ;
+    services[2].type = BLE_GATT_SVC_TYPE_PRIMARY;
+    services[2].uuid = &device_info_uuid.u;
+    services[2].characteristics = device_info_characteristics;
 }
 
 void advertise();

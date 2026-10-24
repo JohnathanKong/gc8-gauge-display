@@ -7,10 +7,12 @@ struct Gc8BleSnapshot {
     bool connected;
     bool has_navigation;
     bool route_active;  // START, DEST or valid turn; independent of distance
+    bool guidance_stale; // HOLD or expiry: don't display an obsolete turn
     char maneuver[16];
     char distance[20];
     char road[48];
     char destination[48];
+    int64_t last_guidance_us; // Monotonic age of the latest genuine turn
     bool has_demo_afr;
     char demo_afr[8];
 

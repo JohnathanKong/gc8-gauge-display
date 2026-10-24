@@ -16,6 +16,7 @@ constexpr char TAG[] = "gc8_device_power";
 constexpr uint16_t kAxp2101Address = 0x34;
 constexpr uint8_t kChipIdRegister = 0x03;
 constexpr uint8_t kExpectedChipId = 0x4A;
+constexpr uint8_t kAlternateChipId = 0x47; // AXP2101 silicon variants
 constexpr uint8_t kPmuStatusRegister = 0x00;
 constexpr uint8_t kChargeStatusRegister = 0x01;
 constexpr uint8_t kFuelGaugePercentRegister = 0xA4;
@@ -122,7 +123,7 @@ void monitor_task(void *) {
     }
     uint8_t chip_id = 0;
     if (!read_axp_register(kChipIdRegister, chip_id) ||
-        chip_id != kExpectedChipId) {
+        (chip_id != kExpectedChipId && chip_id != kAlternateChipId)) {
         ESP_LOGW(TAG, "Unexpected AXP2101 ID 0x%02X; status unknown", chip_id);
         i2c_master_bus_rm_device(pmic);
         pmic = nullptr;

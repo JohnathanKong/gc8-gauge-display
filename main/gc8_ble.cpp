@@ -6,6 +6,7 @@
 #include "freertos/portmacro.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
@@ -53,6 +54,31 @@ bool valid_ascii(const char *value) {
     return true;
 }
 bool parse_test_message(char *buffer) {
+    // Phone-local clock sync; no ESP32 Wi-Fi, GPS or RTC required.
+    // GC8|1|TIME|HH:MM:SS|12 (or |24). Re-sync from Android every minute
+    // to follow user clock preferences, daylight saving and timezone changes.
+    constexpr char kTimePrefix[] = "GC8|1|TIME|";
+    if (std::strncmp(buffer, kTimePrefix, sizeof(kTimePrefix) - 1) == 0) {
+        const char *p = buffer + sizeof(kTimePrefix) - 1;
+        if (std::strlen(p) != 11 || p[2] != ':' || p[5] != ':' || p[8] != '|' ||
+            (std::strcmp(p + 9, "12") && std::strcmp(p + 9, "24"))) return false;
+        const int positions[] = {0, 1, 3, 4, 6, 7};
+        for (const int i : positions) {
+            if (p[i] < '0' || p[i] > '9') return false;
+        }
+        const int hour = (p[0] - '0') * 10 + p[1] - '0';
+        const int minute = (p[3] - '0') * 10 + p[4] - '0';
+        const int second = (p[6] - '0') * 10 + p[7] - '0';
+        if (hour >= 24 || minute >= 60 || second >= 60) return false;
+        portENTER_CRITICAL(&snapshot_lock);
+        snapshot.clock_seconds = hour * 3600 + minute * 60 + second;
+        snapshot.clock_24h = p[9] == '2';
+        snapshot.clock_synced_us = esp_timer_get_time();
+        snapshot.has_clock = true;
+        portEXIT_CRITICAL(&snapshot_lock);
+        return true;
+    }
+
     // Notification-only mode: show "Getting directions..." immediately
     // after Maps starts navigation, without capturing the destination.
     if (std::strcmp(buffer, "GC8|1|START") == 0) {

@@ -116,7 +116,8 @@ bool parse_test_message(char *buffer) {
     constexpr char kAppResult[] = "GC8|1|APP|RESULT|";
     if (std::strncmp(buffer, kAppResult, sizeof(kAppResult) - 1) == 0) {
         const char *result = buffer + sizeof(kAppResult) - 1;
-        if (std::strcmp(result, "READY") == 0) show_garage_banner("APP ACTION SENT");
+        if (std::strcmp(result, "OPENED") == 0) show_garage_banner("APP OPEN REQUESTED");
+        else if (std::strcmp(result, "ALERT") == 0) show_garage_banner("TAP PHONE NOTICE");
         else if (std::strcmp(result, "SETUP") == 0) show_garage_banner("SET BOOT APP");
         else if (std::strcmp(result, "FAILED") == 0) show_garage_banner("APP ACTION FAILED");
         else return false;

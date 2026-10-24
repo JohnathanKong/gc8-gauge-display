@@ -257,10 +257,23 @@ void refresh_navigation(lv_timer_t *) {
         }
     }
     const auto current = gc8_ble_snapshot();
+    // Apply display-only idle dimming even if the nav snapshot didn't change.
+    // Keep the ESP32 fully awake: garage PWR, HID voice and BLE still work.
+    const uint8_t target_brightness =
+        device_power_target_brightness(current.route_active, diagnostics_visible);
+    if (target_brightness != applied_brightness &&
+        bsp_display_brightness_set(target_brightness) == ESP_OK) {
+        applied_brightness = target_brightness;
+        ESP_LOGI(TAG, "Panel brightness %u%% (route=%d diagnostic=%d)",
+                 static_cast<unsigned>(target_brightness),
+                 static_cast<int>(current.route_active),
+                 static_cast<int>(diagnostics_visible));
+    }
 
     // Evaluate the transient overlay BEFORE the snapshot-change guard, so
     // it disappears on time even when Maps/BLE are completely idle.
     const int64_t now_us = esp_timer_get_time();
+    update_diagnostics(now_us);
     const bool garage_active = current.garage_banner[0] &&
                               now_us < current.garage_banner_until_us;
     const bool orientation_active = orientation_notice[0] &&
@@ -324,17 +337,22 @@ void refresh_navigation(lv_timer_t *) {
     const auto power = device_power_snapshot();
     const int power_percent = power.valid ? static_cast<int>(power.percent) : -1;
     const bool power_changed = power_percent != last_device_battery ||
-                               power.charging != last_battery_charging;
+                               power.charging != last_battery_charging ||
+                               power.external_power != last_external_power ||
+                               power.vbus_valid != last_power_status_valid;
     if (!first_update && std::memcmp(&previous, &current, sizeof(current)) == 0 &&
         !power_changed) return;
     first_update = false;
     previous = current;
 
-    lv_label_set_text(connection, current.connected ? "BLE CONNECTED" : "BLE WAITING");
+    lv_label_set_text(connection,
+        current.connected ? "BLE OK - TAP STATUS" : "BLE WAIT - TAP STATUS");
     // Real AXP2101 fuel-gauge data from the WAVE SHARE DEVICE, not phone.
     if (power_changed) {
         last_device_battery = power_percent;
         last_battery_charging = power.charging;
+        last_external_power = power.external_power;
+        last_power_status_valid = power.vbus_valid;
         if (power.valid) {
             char pct[8];
             std::snprintf(pct, sizeof(pct), "%u%%",
@@ -349,7 +367,14 @@ void refresh_navigation(lv_timer_t *) {
             lv_obj_remove_flag(battery_tip, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_obj_add_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
+            // No installed battery must not be misrepresented as 0%.
+            // USB power can still be independently known from PMIC status.
+            if (power.vbus_valid && power.external_power) {
+                lv_label_set_text(battery_percent, "USB");
+                lv_obj_remove_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
+            }
             lv_obj_add_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(battery_tip, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);

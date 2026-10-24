@@ -445,23 +445,28 @@ int gap_event(ble_gap_event *event, void *) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             ESP_LOGI(TAG, "BLE connect status=%d", event->connect.status);
-            garage_subscribed.store(false);
-            hid_subscribed.store(false);
-            if (event->connect.status == 0) {
-                garage_connection_handle.store(event->connect.conn_handle);
-                set_connection(true);
-            } else advertise();
+            // Android's HID host and GC8 Companion may share one BLE link or
+            // use separate connections. Do not reset either subscription just
+            // because another client connected.
+            // Keep advertising until the second profile can attach.
+            advertise();
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
-            ESP_LOGI(TAG, "BLE disconnected");
-            garage_subscribed.store(false);
-            hid_subscribed.store(false);
-            set_connection(false);
+            ESP_LOGI(TAG, "BLE disconnected, handle=%u",
+                     static_cast<unsigned>(event->disconnect.conn.conn_handle));
+            if (event->disconnect.conn.conn_handle == garage_connection_handle.load()) {
+                garage_subscribed.store(false);
+                set_connection(false);
+            }
+            if (event->disconnect.conn.conn_handle == hid_connection_handle.load())
+                hid_subscribed.store(false);
             advertise();
             return 0;
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (event->subscribe.attr_handle == garage_event_value_handle) {
                 garage_subscribed.store(event->subscribe.cur_notify != 0);
+                garage_connection_handle.store(event->subscribe.conn_handle);
+                set_connection(event->subscribe.cur_notify != 0);
                 ESP_LOGI(TAG, "Garage PWR event notify subscribed=%d",
                          static_cast<int>(garage_subscribed.load()));
             }

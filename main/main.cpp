@@ -74,7 +74,11 @@ const char *reset_reason_text(esp_reset_reason_t reason) {
         case ESP_RST_PANIC: return "PANIC";
         case ESP_RST_INT_WDT: return "INT WDT";
         case ESP_RST_TASK_WDT: return "TASK WDT";
+        case ESP_RST_WDT: return "WATCHDOG";
         case ESP_RST_BROWNOUT: return "BROWNOUT";
+        case ESP_RST_PWR_GLITCH: return "POWER GLITCH";
+        case ESP_RST_USB: return "USB RESET";
+        case ESP_RST_CPU_LOCKUP: return "CPU LOCKUP";
         case ESP_RST_DEEPSLEEP: return "DEEP SLEEP";
         case ESP_RST_EXT: return "EXTERNAL";
         default: return "OTHER";

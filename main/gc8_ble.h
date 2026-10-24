@@ -34,3 +34,7 @@ Gc8BleSnapshot gc8_ble_snapshot();
 // Explicit short press of the upper PWR button. Only notifies the connected
 // authorized phone app; does not run Wi-Fi or know Meross credentials.
 void gc8_ble_garage_button_pressed();
+
+// Lower BOOT short press: requests a configured app launch on the phone.
+// No direct app/garage control exists on this ESP32.
+void gc8_ble_app_button_pressed();

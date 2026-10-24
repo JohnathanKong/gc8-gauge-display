@@ -1,5 +1,46 @@
 # GC8 Gauge Display
 
+## 2026-10-24 — Consolidated pre-test firmware: diagnostics, power, and persisted preferences
+
+This is the single firmware branch combining the previously queued Bluetooth/Gemini, parking-lot guidance, and orientation experiments with **on-device observability and safe power management**. It does **not** enable an AEM wideband, pretend measured boost/AFR data exists, or add deep sleep.
+
+### On-device control (capacitive touchscreen)
+
+| Where / gesture | Action |
+| --- | --- |
+| **Cockpit:** tap the Bluetooth status line near top centre | Open GC8 **System Status** diagnostics |
+| **Cockpit:** tap elsewhere | Rotate clockwise 90° and lock; manual angle saved in NVS |
+| **Cockpit:** hold touchscreen with device vertical, USB-down | Calibrate QMI8658 and enable saved 90°-step AUTO rotation |
+| **System Status:** tap the **BRIGHTNESS** row | Cycle **40 / 60 / 75 / 90 / 100%**; persisted |
+| **System Status:** tap the **IDLE DIM** row | Cycle **OFF / 1 / 5 / 15 min**; persisted |
+| **System Status:** tap anywhere else | Return to cockpit |
+
+A transparent top-level touch surface handles taps over the artwork/labels (background-only hit testing was unreliable). Coordinates are remapped for the currently selected hardware quarter-turn; this still needs real hardware testing because panel/touch transforms depend on Waveshare's implementation. BOOT and PWR button handlers are **unchanged** by this release.
+
+### System Status diagnostics
+
+The 466×466 on-device diagnostics show:
+- **Companion GATT subscription** independently of **Voice Command HID** and **Media HID** subscriptions, including the number of HID reports submitted to NimBLE since startup. This does *not* prove Gemini actually launched.
+- Active BLE link count, total connections, most recent NimBLE disconnection **reason code**, total disconnect events.
+- **ESP32 uptime** (resets on every reboot), **ESP32 reset reason** (including brownout/power-glitch/watchdog/panic versus normal power-on), and a boot count stored once per startup under NVS namespace `gc8_boot`.
+- AXP2101 **VBUS-good** from read-only PMIC status bit 5, **battery presence** from bit 3, genuine AXP2101 fuel gauge percent only when valid, and charging status only when a battery is present. USB present without a cell is **not** labelled "charging" or "0%".
+- Screen rotation AUTO/LOCK angle and stored brightness/idle-dim controls.
+
+### Safe display power management
+
+Uses the Waveshare CO5300 brightness interface; no AXP2101 power-control registers are written. Default display brightness is **75%**. After **5 minutes** without touchscreen activity, with no active Maps route and diagnostic screen closed, the display dims to **25%**. Any touchscreen contact wakes full brightness. A Maps route or open System Status prevents dimming. Settings live in NVS namespace `gc8_display`.
+
+**The processor, BLE/GATT, button polling, clock and notifications never sleep**: ESP32 deep sleep would break the garage and voice functions. This is a *panel power and AMOLED burn-in mitigation*, not a promise about battery runtime. No actual external-voltage/current/battery-capacity instrumentation is added.
+
+### Reliability changes and deployment
+
+- Adds a guard around NimBLE advertising restarts to avoid reconfiguring advertisements while already advertising; logs disconnect **reason** plus cumulative counts. The user should examine code 8/timeouts with the diagnostic screen if the phone still reconnects frequently.
+- Restores the long-press gesture with the standalone transparent hit-target and reports meaningful feedback. Leaves previous voice HID report IDs, GATT custom service UUID, garage command, navigation packet formats, and Android app logic intact.
+- Checks that `gc8_ble_start()` initializes NVS before preferences and boot counters are loaded. QMI8658 and AXP2101 use separate I2C addresses on the board's shared BSP-managed bus.
+- **Build/flash once:** `git pull` and `.\\build.bat` in your ESP-IDF v6.1 terminal; flash using the existing process. If you haven't installed the earlier Companion BLE/navigation/voice diagnostic changes yet, update and install that Android APK too; this release doesn't modify the Android repository again.
+- Suggested first stationary validation: cold boot and read **UPTIME/RESET/boot count**; toggle USB power; open diagnostics with a Bluetooth connection; disconnect/reconnect and watch **LAST DROP**; tap brightness/idle settings and reboot to verify NVS; test manual rotation and auto calibration. Only after that retest lower BOOT (short Voice Command and long media hold), upper PWR garage trigger, and Maps on a subsequent drive.
+- **Verification boundary:** GitHub source review and static checks were performed. Firmware was **not compiled with ESP-IDF or flashed onto the 1.75C** here. These are code changes pending owner's build and hands-on validation; no claims of operational success are made.
+
 ## 2026-10-24 — Screen rotation for charging (1.75C, experimental)
 
 The exact Waveshare **ESP32-S3-Touch-AMOLED-1.75C** has a QMI8658 IMU (I2C `0x6B`) and a CO5300 display with a BSP hardware rotation command. The charging connector can point sideways or up while the **entire** 466x466 dashboard (artwork, arrow, clock, status, battery, AFR) remains readable.

@@ -254,10 +254,23 @@ void refresh_navigation(lv_timer_t *) {
         lv_obj_add_flag(street, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(nav_separator, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_HIDDEN);
+        // The text-guidance state temporarily uses smaller type. Restore the
+        // original font for READY/PAUSED/ROUTE STARTED after it disappears.
+        lv_obj_set_style_text_font(idle_title, &lv_font_montserrat_40, 0);
         if (!current.connected) {
             lv_label_set_text(idle_heading, "GC8 COMPANION");
             lv_label_set_text(idle_title, "CONNECT PHONE");
             lv_label_set_text(idle_hint, "OPEN COMPANION TO PAIR");
+        } else if (current.route_active && current.guidance_title[0]) {
+            // Explicit Maps message with no reliable left/right bearing or
+            // next-turn distance. Keep the cockpit visually intentional.
+            lv_label_set_text(idle_heading, "GOOGLE MAPS");
+            lv_obj_set_style_text_font(idle_title,
+                std::strlen(current.guidance_title) > 16
+                    ? &lv_font_montserrat_26 : &lv_font_montserrat_32, 0);
+            lv_label_set_text(idle_title, current.guidance_title);
+            lv_label_set_text(idle_hint,
+                current.guidance_hint[0] ? current.guidance_hint : "FOLLOW MAPS");
         } else if (current.route_active && current.guidance_stale) {
             lv_label_set_text(idle_heading, "GOOGLE MAPS");
             lv_label_set_text(idle_title, "GUIDANCE PAUSED");

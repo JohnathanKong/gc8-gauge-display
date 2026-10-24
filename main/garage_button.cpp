@@ -2,8 +2,7 @@
 #include "gc8_ble.h"
 
 #include <cstdint>
-#include "bsp/esp-bsp.h"
-#include "esp_io_expander.h"
+#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -12,30 +11,25 @@
 
 namespace {
 constexpr char TAG[] = "gc8_garage_button";
-constexpr uint32_t kPwrMask = IO_EXPANDER_PIN_NUM_4; // SYS_OUT high while upper PWR held.
+// Exact Waveshare ESP32-S3-Touch-AMOLED-1.75C (round 466x466):
+// conditioned PWR sense SYS_OUT -> GPIO3, HIGH only when PWR is pressed.
+// IMPORTANT: non-C 1.75 uses TCA9554 EXIO4 instead. Never use it here.
+// GPIO0 is the LOWER BOOT button, reserved for flashing.
+constexpr gpio_num_t kPwrSensePin = GPIO_NUM_3;
 constexpr int64_t kMinPressUs = 75000;
-constexpr int64_t kMaxPressUs = 1200000;    // Long press belongs to AXP2101 power logic.
-constexpr int64_t kCooldownUs = 6000000;    // Prevent inadvertent double-toggle.
+constexpr int64_t kMaxPressUs = 1200000;     // Long press: AXP2101 power-off.
+constexpr int64_t kCooldownUs = 6000000;     // Protect against duplicate actions.
 constexpr int kSampleMs = 35;
 
-esp_io_expander_handle_t expander = nullptr;
-
-bool read_upper_button(bool &pressed) {
-    uint32_t levels = 0;
-    if (!expander ||
-        esp_io_expander_get_level(expander, kPwrMask, &levels) != ESP_OK)
-        return false;
-    pressed = (levels & kPwrMask) != 0;
-    return true;
-}
-
 void poll_task(void *) {
-    // Reuse the BSP's existing TCA9554 instance and shared I2C bus.
-    // Adding a second independent device at 0x20 can conflict with the
-    // audio/display expander driver, so do not create one.
-    expander = bsp_io_expander_init();
-    if (!expander) {
-        ESP_LOGW(TAG, "BSP TCA9554 unavailable; garage button disabled");
+    gpio_config_t config = {};
+    config.pin_bit_mask = 1ULL << static_cast<uint32_t>(kPwrSensePin);
+    config.mode = GPIO_MODE_INPUT;
+    config.pull_up_en = GPIO_PULLUP_DISABLE;
+    config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    config.intr_type = GPIO_INTR_DISABLE;
+    if (gpio_config(&config) != ESP_OK) {
+        ESP_LOGE(TAG, "PWR GPIO3 not available; garage button disabled");
         vTaskDelete(nullptr);
         return;
     }
@@ -43,27 +37,19 @@ void poll_task(void *) {
     bool stable = false, raw_prev = false, initialized = false;
     int same_readings = 0;
     int64_t pressed_at = 0, last_accepted_at = -kCooldownUs;
-    ESP_LOGI(TAG, "Upper PWR button monitor armed; lower BOOT is unused");
-
+    ESP_LOGI(TAG, "Monitoring upper PWR on GPIO3 (HIGH=pressed); BOOT untouched");
     for (;;) {
-        bool raw = false;
-        if (!read_upper_button(raw)) {
-            same_readings = 0;
-            vTaskDelay(pdMS_TO_TICKS(kSampleMs));
-            continue;
-        }
-
+        const bool raw = gpio_get_level(kPwrSensePin) != 0;
         if (raw == raw_prev) ++same_readings;
         else { raw_prev = raw; same_readings = 1; }
 
-        // Need >= ~105 ms of stable reads to reject bounce and noise.
+        // Three stable samples (~105ms) reject noise, bounce and quick spikes.
         if (same_readings >= 3 && (!initialized || raw != stable)) {
             const int64_t now = esp_timer_get_time();
             if (!initialized) {
                 initialized = true;
                 stable = raw;
-                // A button already held during boot is never treated as an
-                // intentional new garage command.
+                // Do not emit on a press already held during boot.
                 pressed_at = 0;
             } else {
                 stable = raw;
@@ -74,10 +60,10 @@ void poll_task(void *) {
                     if (duration >= kMinPressUs && duration <= kMaxPressUs &&
                         now - last_accepted_at >= kCooldownUs) {
                         last_accepted_at = now;
-                        ESP_LOGI(TAG, "Upper PWR tapped; requesting garage action");
+                        ESP_LOGI(TAG, "Upper PWR tapped; requesting garage routine");
                         gc8_ble_garage_button_pressed();
                     } else if (duration > kMaxPressUs) {
-                        ESP_LOGI(TAG, "Upper PWR held; ignoring garage action");
+                        ESP_LOGI(TAG, "PWR held; no garage request");
                     }
                 }
             }
@@ -88,7 +74,6 @@ void poll_task(void *) {
 } // namespace
 
 void garage_button_start() {
-    if (xTaskCreate(poll_task, "garage_pwr", 3072, nullptr, 3, nullptr) != pdPASS) {
-        ESP_LOGE(TAG, "Unable to start garage PWR reader");
-    }
+    if (xTaskCreate(poll_task, "garage_pwr", 3072, nullptr, 3, nullptr) != pdPASS)
+        ESP_LOGE(TAG, "Unable to start PWR GPIO3 reader");
 }

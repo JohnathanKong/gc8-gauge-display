@@ -24,6 +24,9 @@ lv_obj_t *distance = nullptr;
 lv_obj_t *street = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
 lv_obj_t *afr_value = nullptr;
+lv_obj_t *battery_percent = nullptr;
+lv_obj_t *battery_fill = nullptr;
+lv_obj_t *battery_outline = nullptr;
 lv_obj_t *afr_sweep_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
@@ -57,17 +60,36 @@ lv_obj_t *add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
     return sprite;
 }
 
-void add_rule(lv_obj_t *screen, int x, int y, int width) {
+// Deliberately separate dividers: both header rules, the vertical
+// navigation separator, and the strong horizontal navigation/AFR boundary.
+void add_rule(lv_obj_t *screen, int x, int y, int width, int height,
+              uint32_t color = kRule, lv_opa_t opacity = LV_OPA_COVER) {
     auto *rule = lv_obj_create(screen);
     lv_obj_set_pos(rule, x, y);
-    lv_obj_set_size(rule, width, 2);
-    lv_obj_set_style_bg_color(rule, lv_color_hex(kRule), 0);
-    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
+    lv_obj_set_size(rule, width, height);
+    lv_obj_set_style_bg_color(rule, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(rule, opacity, 0);
     lv_obj_set_style_border_width(rule, 0, 0);
     lv_obj_set_style_radius(rule, 0, 0);
     lv_obj_set_style_pad_all(rule, 0, 0);
     lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
+}
+
+// Two thin concentric outlines give the circular screen the instrument
+// bezel in the reference, with no interactive LVGL arc knob.
+void add_rim(lv_obj_t *screen, int inset, uint32_t color, lv_opa_t opacity) {
+    auto *ring = lv_obj_create(screen);
+    lv_obj_set_pos(ring, inset, inset);
+    lv_obj_set_size(ring, 466 - inset * 2, 466 - inset * 2);
+    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(ring, lv_color_hex(color), 0);
+    lv_obj_set_style_border_opa(ring, opacity, 0);
+    lv_obj_set_style_border_width(ring, 2, 0);
+    lv_obj_set_style_pad_all(ring, 0, 0);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
 }
 
 // Preserve the previously tested LEFT/RIGHT/STRAIGHT artwork and BLE protocol.
@@ -115,6 +137,23 @@ void refresh_navigation(lv_timer_t *) {
     previous = current;
 
     lv_label_set_text(connection, current.connected ? "BLE CONNECTED" : "BLE WAITING");
+    // Battery refers to the connected PHONE, not an uninstrumented vehicle
+    // battery. Hide the icon/value when no verified Android reading exists.
+    const bool battery_known = current.connected && current.has_phone_battery;
+    if (battery_known) {
+        char pct[8];
+        std::snprintf(pct, sizeof(pct), "%u%%",
+                      static_cast<unsigned>(current.phone_battery_percent));
+        lv_label_set_text(battery_percent, pct);
+        lv_obj_set_width(battery_fill, current.phone_battery_percent * 17 / 100);
+        lv_obj_remove_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
+    }
     if (current.connected && current.has_demo_afr) {
         lv_label_set_text(afr_value, current.demo_afr);
         lv_label_set_text(afr_label, "AFR DEMO");
@@ -129,10 +168,17 @@ void refresh_navigation(lv_timer_t *) {
     if (current.connected && current.has_navigation) {
         draw_arrow(current.maneuver);
         lv_label_set_text(distance, current.distance);
+        // Use 32px for common short roads; 26px for long compound names.
+        // This is still large enough for a quick glance but gives longer
+        // roads more real estate than the previous narrow right column.
+        lv_obj_set_style_text_font(street,
+            std::strlen(current.road) > 27 ? &lv_font_montserrat_26 :
+                                            &lv_font_montserrat_32, 0);
         lv_label_set_text(street, current.road);
     } else {
         draw_arrow("");
         lv_label_set_text(distance, "--");
+        lv_obj_set_style_text_font(street, &lv_font_montserrat_26, 0);
         // START comes from a Maps navigation notification, not
         // Accessibility or a destination string. Until a real positive
         // maneuver distance arrives, do not invent turn guidance.
@@ -149,27 +195,63 @@ void draw_home() {
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Two-column navigation and an always-visible single AFR instrument.
-    // Keep the perspective roadway behind guidance at moderate alpha so it
-    // supplies visual context without competing with the arrow/street text.
+    // Reference-matched 466px round cockpit. Layers: atmospheric road,
+    // segmented rim gauge, fine dividers, then white text and blue arrow.
     cockpit_art::rasterize();
-    add_sprite(screen, &cockpit_art::road, 73, 186, kBlue, LV_OPA_80);
-    add_rule(screen, 87, 307, 292);
-    // Wider, unlit AEM-inspired 30-segment AFR sweep, not a live measurement.
-    // The handle is retained for future sensor-driven segment colouring.
-    afr_sweep_sprite = add_sprite(screen, &cockpit_art::afr_sweep, 45, 321, kBlue);
+    add_rim(screen, 5, 0x49667B, LV_OPA_70);
+    add_rim(screen, 11, 0x1D3856, LV_OPA_55);
+    if (cockpit_art::road.data) {
+        add_sprite(screen, &cockpit_art::road,
+                   cockpit_art::road_x, cockpit_art::road_y, kBlue,
+                   LV_OPA_90);
+    }
+    if (cockpit_art::afr_sweep.data) {
+        afr_sweep_sprite = add_sprite(screen, &cockpit_art::afr_sweep,
+                                     cockpit_art::sweep_x,
+                                     cockpit_art::sweep_y, kBlue);
+    }
 
-    // Android synchronizes the phone-local time over BLE. Show "--:--"
-    // rather than fake a clock until the first successful synchronization.
-    clock_label = make_label(screen, "--:--", &lv_font_montserrat_32,
-                             kBlue, 124, 21, 218, LV_TEXT_ALIGN_CENTER);
-    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_20,
-                            kMuted, 119, 64, 228, LV_TEXT_ALIGN_CENTER);
+    // All reference separators are intentional: upper-left and upper-right
+    // rule fragments, vertical arrow/street separator, and AFR horizon line.
+    add_rule(screen, 48, 79, 93, 1, 0x2A5474, LV_OPA_65);
+    add_rule(screen, 309, 79, 31, 1, 0x2A5474, LV_OPA_65);
+    add_rule(screen, 194, 120, 2, 140, kBlue, LV_OPA_55);
+    add_rule(screen, 42, 310, 382, 2, kBlue, LV_OPA_80);
 
-    // Retain exactly the 112x132 arrow artwork the owner liked.
-    // Left column: arrow above a large, centered next-turn distance.
+    // Phone-clock, not an invented ESP32 date: "--:--" until first sync.
+    clock_label = make_label(screen, "--:--", &lv_font_montserrat_40,
+                             kBlue, 118, 26, 230, LV_TEXT_ALIGN_CENTER);
+    connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_16,
+                            kMuted, 131, 85, 203, LV_TEXT_ALIGN_CENTER);
+
+    // Real Android phone battery in the top-right only when available.
+    battery_outline = lv_obj_create(screen);
+    lv_obj_set_pos(battery_outline, 338, 88);
+    lv_obj_set_size(battery_outline, 26, 14);
+    lv_obj_set_style_radius(battery_outline, 2, 0);
+    lv_obj_set_style_bg_opa(battery_outline, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(battery_outline, 2, 0);
+    lv_obj_set_style_border_color(battery_outline, lv_color_hex(kMuted), 0);
+    lv_obj_set_style_pad_all(battery_outline, 0, 0);
+    lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_CLICKABLE);
+    // Filled level bar overlaid on the border's interior.
+    battery_fill = lv_obj_create(screen);
+    lv_obj_set_pos(battery_fill, 342, 92);
+    lv_obj_set_size(battery_fill, 0, 6);
+    lv_obj_set_style_bg_color(battery_fill, lv_color_hex(kWhite), 0);
+    lv_obj_set_style_bg_opa(battery_fill, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(battery_fill, 0, 0);
+    lv_obj_set_style_border_width(battery_fill, 0, 0);
+    lv_obj_set_style_pad_all(battery_fill, 0, 0);
+    lv_obj_remove_flag(battery_fill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(battery_fill, LV_OBJ_FLAG_CLICKABLE);
+    battery_percent = make_label(screen, "", &lv_font_montserrat_16,
+                                 kMuted, 371, 84, 50, LV_TEXT_ALIGN_LEFT);
+
+    // User-approved 112x132 arrow, now pushed left by 39px. Distance below it.
     maneuver_graphic = lv_image_create(screen);
-    lv_obj_set_pos(maneuver_graphic, 83, 106);
+    lv_obj_set_pos(maneuver_graphic, 44, 116);
     lv_obj_set_size(maneuver_graphic, 112, 132);
     lv_obj_set_style_image_recolor(maneuver_graphic, lv_color_hex(kBlue), 0);
     lv_obj_set_style_image_recolor_opa(maneuver_graphic, LV_OPA_COVER, 0);
@@ -178,22 +260,21 @@ void draw_home() {
     lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_SCROLLABLE);
 
     distance = make_label(screen, "--", &lv_font_montserrat_40,
-                          kWhite, 43, 247, 196, LV_TEXT_ALIGN_CENTER);
+                          kWhite, 24, 252, 171, LV_TEXT_ALIGN_CENTER);
 
-    // Right column: use the available height for large multi-line road text.
-    // LVGL ellipsizes only genuinely too-long road names. No overlap with AFR.
+    // Street moves left by 22px and gains 54px width versus old layout.
+    // Four lines for long roads, no overlap with the bottom AFR divider.
     street = make_label(screen, "Start navigation", &lv_font_montserrat_32,
-                        kWhite, 233, 141, 172, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_size(street, 172, 149);
+                        kWhite, 211, 133, 224, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_size(street, 224, 162);
     lv_label_set_long_mode(street, LV_LABEL_LONG_DOT);
 
-    // A large AFR readout sits inside a wide 30-segment LED-style sweep.
-    // The segments have no active needle or measured range until a calibrated
-    // wideband is connected; colours stay static and do not imply safety.
-    afr_label = make_label(screen, "AFR", &lv_font_montserrat_20,
-                           kBlue, 158, 324, 150, LV_TEXT_ALIGN_CENTER);
+    // AEM-inspired, near-rim 30-segment display; blue is decorative until
+    // actual wideband measurements and meaningful thresholds exist.
+    afr_label = make_label(screen, "WIDEBAND AFR", &lv_font_montserrat_20,
+                           kBlue, 115, 335, 236, LV_TEXT_ALIGN_CENTER);
     afr_value = make_label(screen, "--.-", &lv_font_montserrat_48,
-                           kWhite, 101, 349, 264, LV_TEXT_ALIGN_CENTER);
+                           kWhite, 104, 363, 258, LV_TEXT_ALIGN_CENTER);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
     refresh_navigation(nullptr);

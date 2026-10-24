@@ -12,6 +12,10 @@ struct Gc8BleSnapshot {
     char distance[20];
     char road[48];
     char destination[48];
+    // Explicit text-only Maps directions (parking exit / destination side).
+    // Never infer an angle, arrival, or a distance from these messages.
+    char guidance_title[32];
+    char guidance_hint[40];
     int64_t last_guidance_us; // Monotonic age of the latest genuine turn
     bool has_demo_afr;
     char demo_afr[8];

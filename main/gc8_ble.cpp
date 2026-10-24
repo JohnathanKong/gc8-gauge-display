@@ -111,6 +111,17 @@ bool parse_test_message(char *buffer) {
         else return false;
         return true;
     }
+    // Lower BOOT app launch is separate from garage control.
+    // Replies only describe Android handoff, never that the app became ready.
+    constexpr char kAppResult[] = "GC8|1|APP|RESULT|";
+    if (std::strncmp(buffer, kAppResult, sizeof(kAppResult) - 1) == 0) {
+        const char *result = buffer + sizeof(kAppResult) - 1;
+        if (std::strcmp(result, "READY") == 0) show_garage_banner("APP ACTION SENT");
+        else if (std::strcmp(result, "SETUP") == 0) show_garage_banner("SET BOOT APP");
+        else if (std::strcmp(result, "FAILED") == 0) show_garage_banner("APP ACTION FAILED");
+        else return false;
+        return true;
+    }
     // Phone-local clock sync; no ESP32 Wi-Fi, GPS or RTC required.
     // GC8|1|TIME|HH:MM:SS|12 (or |24). Re-sync from Android every minute
     // to follow user clock preferences, daylight saving and timezone changes.
@@ -403,6 +414,30 @@ void gc8_ble_garage_button_pressed() {
     } else {
         show_garage_banner("GARAGE: BLE ERROR");
         ESP_LOGW(TAG, "Garage BLE notification failed: %d", rc);
+    }
+}
+
+void gc8_ble_app_button_pressed() {
+    if (!garage_subscribed.load() || !gc8_ble_snapshot().connected ||
+        garage_event_value_handle == 0) {
+        show_garage_banner("APP: PHONE OFFLINE");
+        ESP_LOGW(TAG, "BOOT pressed but Companion is not subscribed");
+        return;
+    }
+    constexpr char event[] = "GC8|1|APP|PRESS";
+    auto *packet = ble_hs_mbuf_from_flat(event, sizeof(event) - 1);
+    if (!packet) {
+        show_garage_banner("APP: BLE ERROR");
+        return;
+    }
+    const int rc = ble_gatts_notify_custom(
+        garage_connection_handle.load(), garage_event_value_handle, packet);
+    if (rc == 0) {
+        show_garage_banner("APP REQUESTED");
+        ESP_LOGI(TAG, "BOOT app event delivered to BLE stack");
+    } else {
+        show_garage_banner("APP: BLE ERROR");
+        ESP_LOGW(TAG, "BOOT BLE notification failed: %d", rc);
     }
 }
 

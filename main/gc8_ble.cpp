@@ -344,12 +344,13 @@ int hid_append(ble_gatt_access_ctxt *ctx, const uint8_t *bytes, size_t length) {
     return os_mbuf_append(ctx->om, bytes, length) == 0
         ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
-int hid_read_only(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *arg) {
+int hid_info_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
     if (ctx->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
-    const auto selector = reinterpret_cast<uintptr_t>(arg);
-    if (selector == 1) return hid_append(ctx, hid_info, sizeof(hid_info));
-    if (selector == 2) return hid_append(ctx, hid_report_map, sizeof(hid_report_map));
-    return BLE_ATT_ERR_UNLIKELY;
+    return hid_append(ctx, hid_info, sizeof(hid_info));
+}
+int hid_report_map_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
+    if (ctx->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    return hid_append(ctx, hid_report_map, sizeof(hid_report_map));
 }
 int hid_report_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
     if (ctx->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
@@ -411,13 +412,11 @@ void configure_gatt() {
 
     // HID Information
     hid_characteristics[0].uuid = &hid_info_uuid.u;
-    hid_characteristics[0].access_cb = hid_read_only;
-    hid_characteristics[0].arg = reinterpret_cast<void *>(static_cast<uintptr_t>(1));
+    hid_characteristics[0].access_cb = hid_info_access;
     hid_characteristics[0].flags = BLE_GATT_CHR_F_READ;
     // Report Map
     hid_characteristics[1].uuid = &hid_report_map_uuid.u;
-    hid_characteristics[1].access_cb = hid_read_only;
-    hid_characteristics[1].arg = reinterpret_cast<void *>(static_cast<uintptr_t>(2));
+    hid_characteristics[1].access_cb = hid_report_map_access;
     hid_characteristics[1].flags = BLE_GATT_CHR_F_READ;
     // Report value: encrypted bonded HID host only.
     hid_characteristics[2].uuid = &hid_report_uuid.u;

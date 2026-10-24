@@ -22,7 +22,15 @@ struct Gc8BleSnapshot {
     bool clock_24h;
     int32_t clock_seconds; // Seconds after midnight in phone's local timezone
     int64_t clock_synced_us; // esp_timer_get_time() when packet was received
+
+    // Transient overlay only; this never stores garage credentials or door state.
+    char garage_banner[32];
+    int64_t garage_banner_until_us;
 };
 
 void gc8_ble_start();
 Gc8BleSnapshot gc8_ble_snapshot();
+
+// Explicit short press of the upper PWR button. Only notifies the connected
+// authorized phone app; does not run Wi-Fi or know Meross credentials.
+void gc8_ble_garage_button_pressed();

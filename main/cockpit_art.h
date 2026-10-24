@@ -84,14 +84,14 @@ inline void paint_road() {
                 // Visible but subdued asphalt volume, dark enough for labels.
                 a += 9.0f + 14.0f * t;
             }
-            a += (50.0f + 63.0f * t) *
+            a += (105.0f + 125.0f * t) *
                  bell(dx - half_width * 0.91f, 0.8f + 1.7f * t);
-            a += (23.0f + 47.0f * t) *
+            a += (48.0f + 90.0f * t) *
                  bell(dx - half_width * 0.53f, 0.8f + 1.2f * t);
             // Center dashes grow in length with perspective, separated by gaps.
             const bool painted = (y > 29 && y < 45) || (y > 54 && y < 78);
             if (painted) {
-                a += (55.0f + 50.0f * t) *
+                a += (110.0f + 100.0f * t) *
                      bell(dx, 0.7f + 2.0f * t);
             }
             road_pixels[y * road_w + x] = clamp_alpha(a);

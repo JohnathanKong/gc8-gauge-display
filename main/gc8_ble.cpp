@@ -93,6 +93,12 @@ constexpr uint8_t hid_pnp_id[] = {0x02, 0x3A, 0x30, 0x01, 0x00, 0x00, 0x01};
 std::atomic<bool> hid_subscribed{false};
 std::atomic<bool> hid_media_subscribed{false};
 std::atomic<bool> media_key_busy{false};
+std::atomic<uint16_t> active_ble_connections{0};
+std::atomic<uint32_t> total_ble_connections{0};
+std::atomic<uint32_t> total_ble_disconnects{0};
+std::atomic<int> last_ble_disconnect_reason{-1};
+std::atomic<uint32_t> submitted_voice_reports{0};
+std::atomic<uint32_t> submitted_media_reports{0};
 std::atomic<uint16_t> hid_connection_handle{0};
 uint16_t hid_report_value_handle = 0;
 uint16_t hid_media_report_value_handle = 0;
@@ -539,15 +545,22 @@ int gap_event(ble_gap_event *event, void *) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             ESP_LOGI(TAG, "BLE connect status=%d", event->connect.status);
-            // Android's HID host and GC8 Companion may share one BLE link or
-            // use separate connections. Do not reset either subscription just
-            // because another client connected.
-            // Keep advertising until the second profile can attach.
+            if (event->connect.status == 0) {
+                ++active_ble_connections;
+                ++total_ble_connections;
+            }
+            // A successful connect consumes the advertising procedure.
+            // Keep advertising for a second GATT client where supported.
             advertise();
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
-            ESP_LOGI(TAG, "BLE disconnected, handle=%u",
-                     static_cast<unsigned>(event->disconnect.conn.conn_handle));
+            ++total_ble_disconnects;
+            last_ble_disconnect_reason.store(event->disconnect.reason);
+            if (active_ble_connections.load() > 0) --active_ble_connections;
+            ESP_LOGW(TAG, "BLE disconnected, handle=%u reason=%d (total=%u)",
+                     static_cast<unsigned>(event->disconnect.conn.conn_handle),
+                     event->disconnect.reason,
+                     static_cast<unsigned>(total_ble_disconnects.load()));
             if (event->disconnect.conn.conn_handle == garage_connection_handle.load()) {
                 garage_subscribed.store(false);
                 set_connection(false);
@@ -591,6 +604,10 @@ int gap_event(ble_gap_event *event, void *) {
     }
 }
 void advertise() {
+    // BLE_GAP_EVENT_ADV_COMPLETE and CONNECT/DISCONNECT can arrive back to
+    // back. Calling adv_set_fields while an advertisement is already active
+    // can make NimBLE report EBUSY and impede reconnection.
+    if (ble_gap_adv_active()) return;
     ble_hs_adv_fields fields = {};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.uuids128 = const_cast<ble_uuid128_t *>(&service_uuid);
@@ -710,6 +727,7 @@ void media_hold_task(void *) {
             if (up) {
                 const int rc = ble_gatts_notify_custom(conn, hid_media_report_value_handle, up);
                 if (rc == 0) {
+                    ++submitted_media_reports;
                     show_garage_banner("HEADSET KEY SENT");
                     notify_voice_diagnostic("MEDIA");
                     ESP_LOGI(TAG, "HID media long press/release submitted");
@@ -788,6 +806,7 @@ void gc8_ble_app_button_pressed() {
     rc = ble_gatts_notify_custom(conn, hid_report_value_handle, up);
     if (rc == 0) {
         hid_current_report = 0;
+        ++submitted_voice_reports;
         show_garage_banner("VOICE KEY SENT");
         notify_voice_diagnostic("SENT");
         ESP_LOGI(TAG, "Consumer HID Voice Command press/release sent");
@@ -828,4 +847,12 @@ void gc8_ble_start() {
 
 Gc8BleSnapshot gc8_ble_snapshot() {
     return copy_snapshot();
+}
+
+Gc8BleDiagnostics gc8_ble_diagnostics() {
+    return {garage_subscribed.load(), hid_subscribed.load(),
+            hid_media_subscribed.load(), active_ble_connections.load(),
+            total_ble_connections.load(), total_ble_disconnects.load(),
+            last_ble_disconnect_reason.load(),
+            submitted_voice_reports.load(), submitted_media_reports.load()};
 }

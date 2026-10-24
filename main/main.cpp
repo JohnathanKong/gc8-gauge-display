@@ -23,6 +23,7 @@ char displayed_time[20] = "";
 lv_obj_t *distance = nullptr;
 lv_obj_t *street = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
+lv_obj_t *maneuver_glow[4] = {};
 lv_obj_t *afr_value = nullptr;
 lv_obj_t *battery_percent = nullptr;
 lv_obj_t *battery_fill = nullptr;
@@ -100,9 +101,18 @@ void draw_arrow(const char *turn) {
     else if (std::strcmp(turn, "LEFT") == 0) source = &nav_left_image;
     else if (std::strcmp(turn, "STRAIGHT") == 0) source = &nav_straight_image;
     if (source) {
+        // Very soft 4-direction glow behind the approved A8 silhouette.
+        // The real arrow itself is NOT resized or distorted.
+        for (auto *halo : maneuver_glow) {
+            lv_image_set_src(halo, source);
+            lv_obj_remove_flag(halo, LV_OBJ_FLAG_HIDDEN);
+        }
         lv_image_set_src(maneuver_graphic, source);
         lv_obj_remove_flag(maneuver_graphic, LV_OBJ_FLAG_HIDDEN);
     } else {
+        for (auto *halo : maneuver_glow) {
+            lv_obj_add_flag(halo, LV_OBJ_FLAG_HIDDEN);
+        }
         lv_obj_add_flag(maneuver_graphic, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -266,6 +276,22 @@ void draw_home() {
                                  kMuted, 371, 84, 50, LV_TEXT_ALIGN_LEFT);
 
     // User-approved 112x132 arrow, now pushed left by 39px. Distance below it.
+    // Low-opacity silhouettes underneath provide a neon edge, not a larger arrow.
+    const int glow_dx[4] = {-3, 3, 0, 0};
+    const int glow_dy[4] = {0, 0, -3, 3};
+    for (int i = 0; i < 4; ++i) {
+        auto *halo = lv_image_create(screen);
+        maneuver_glow[i] = halo;
+        lv_obj_set_pos(halo, 44 + glow_dx[i], 116 + glow_dy[i]);
+        lv_obj_set_size(halo, 112, 132);
+        lv_obj_set_style_image_recolor(halo, lv_color_hex(kBlue), 0);
+        lv_obj_set_style_image_recolor_opa(halo, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_opa(halo, LV_OPA_20, 0);
+        lv_obj_set_style_border_width(halo, 0, 0);
+        lv_obj_set_style_pad_all(halo, 0, 0);
+        lv_obj_remove_flag(halo, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_remove_flag(halo, LV_OBJ_FLAG_CLICKABLE);
+    }
     maneuver_graphic = lv_image_create(screen);
     lv_obj_set_pos(maneuver_graphic, 44, 116);
     lv_obj_set_size(maneuver_graphic, 112, 132);

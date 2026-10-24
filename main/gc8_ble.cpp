@@ -64,18 +64,17 @@ bool parse_test_message(char *buffer) {
         if (n < 11 || n > 15 || p[2] != ':' || p[5] != ':' || p[8] != '|' ||
             ((p[9] != '1' || p[10] != '2') && (p[9] != '2' || p[10] != '4')))
             return false;
-        // Optional real phone battery from Android's BatteryManager:
-        // HH:MM:SS|12|87. No percentage is rendered when absent/unknown.
-        bool has_battery = false;
-        int battery_percent = 0;
+        // Accept an old Android TIME packet's optional phone percentage
+        // for backward compatibility, but NEVER display or retain it:
+        // the icon now reads the Waveshare AXP2101 directly.
+        int legacy_phone_percent = 0;
         if (n > 11) {
             if (p[11] != '|' || n == 12) return false;
             for (size_t i = 12; i < n; ++i) {
                 if (p[i] < '0' || p[i] > '9') return false;
-                battery_percent = battery_percent * 10 + (p[i] - '0');
+                legacy_phone_percent = legacy_phone_percent * 10 + (p[i] - '0');
             }
-            if (battery_percent > 100) return false;
-            has_battery = true;
+            if (legacy_phone_percent > 100) return false;
         }
         const int positions[] = {0, 1, 3, 4, 6, 7};
         for (const int i : positions) {
@@ -90,8 +89,6 @@ bool parse_test_message(char *buffer) {
         snapshot.clock_24h = p[9] == '2';
         snapshot.clock_synced_us = esp_timer_get_time();
         snapshot.has_clock = true;
-        snapshot.has_phone_battery = has_battery;
-        snapshot.phone_battery_percent = static_cast<uint8_t>(battery_percent);
         portEXIT_CRITICAL(&snapshot_lock);
         return true;
     }

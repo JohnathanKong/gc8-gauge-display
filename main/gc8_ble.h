@@ -32,8 +32,23 @@ struct Gc8BleSnapshot {
     int64_t garage_banner_until_us;
 };
 
+// Observable BLE facts, separate from the cockpit's "Companion subscribed"
+// boolean. Reports do not claim that Android accepted an assistant key.
+struct Gc8BleDiagnostics {
+    bool gatt_subscribed;
+    bool voice_hid_subscribed;
+    bool media_hid_subscribed;
+    uint16_t active_connections;
+    uint32_t connections;
+    uint32_t disconnects;
+    int last_disconnect_reason; // NimBLE GAP reason; -1 if none recorded
+    uint32_t voice_reports_submitted;
+    uint32_t media_reports_submitted;
+};
+
 void gc8_ble_start();
 Gc8BleSnapshot gc8_ble_snapshot();
+Gc8BleDiagnostics gc8_ble_diagnostics();
 
 // Explicit short press of the upper PWR button. Only notifies the connected
 // authorized phone app; does not run Wi-Fi or know Meross credentials.

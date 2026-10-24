@@ -27,6 +27,7 @@ lv_obj_t *afr_value = nullptr;
 lv_obj_t *battery_percent = nullptr;
 lv_obj_t *battery_fill = nullptr;
 lv_obj_t *battery_outline = nullptr;
+lv_obj_t *battery_tip = nullptr;
 lv_obj_t *afr_sweep_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
@@ -148,10 +149,12 @@ void refresh_navigation(lv_timer_t *) {
         lv_obj_set_width(battery_fill, current.phone_battery_percent * 17 / 100);
         lv_obj_remove_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(battery_tip, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(battery_percent, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(battery_outline, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(battery_tip, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(battery_fill, LV_OBJ_FLAG_HIDDEN);
     }
     if (current.connected && current.has_demo_afr) {
@@ -236,6 +239,18 @@ void draw_home() {
     lv_obj_set_style_pad_all(battery_outline, 0, 0);
     lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(battery_outline, LV_OBJ_FLAG_CLICKABLE);
+    // Small exposed terminal completes the phone battery icon.
+    battery_tip = lv_obj_create(screen);
+    lv_obj_set_pos(battery_tip, 365, 93);
+    lv_obj_set_size(battery_tip, 3, 5);
+    lv_obj_set_style_bg_color(battery_tip, lv_color_hex(kMuted), 0);
+    lv_obj_set_style_bg_opa(battery_tip, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(battery_tip, 0, 0);
+    lv_obj_set_style_radius(battery_tip, 0, 0);
+    lv_obj_set_style_pad_all(battery_tip, 0, 0);
+    lv_obj_remove_flag(battery_tip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(battery_tip, LV_OBJ_FLAG_CLICKABLE);
+
     // Filled level bar overlaid on the border's interior.
     battery_fill = lv_obj_create(screen);
     lv_obj_set_pos(battery_fill, 342, 92);

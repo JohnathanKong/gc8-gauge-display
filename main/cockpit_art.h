@@ -14,7 +14,7 @@ constexpr int battery_w = 26, battery_h = 14;
 // AEM-inspired 24-segment AFR sweep around the lower readout, inactive
 // until an actual calibrated AFR sensor is connected. No invented needle,
 // safety range, live AFR value or LVGL arc knob.
-constexpr int sweep_w = 360, sweep_h = 126;
+constexpr int sweep_w = 376, sweep_h = 136;
 
 static uint8_t road_pixels[road_w * road_h] = {};
 static uint8_t left_arc_pixels[arc_w * arc_h] = {};

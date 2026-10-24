@@ -24,7 +24,7 @@ lv_obj_t *distance = nullptr;
 lv_obj_t *street = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
 lv_obj_t *afr_value = nullptr;
-lv_obj_t *afr_cradle_sprite = nullptr;
+lv_obj_t *afr_sweep_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
 bool first_update = true;
@@ -155,14 +155,14 @@ void draw_home() {
     cockpit_art::rasterize();
     add_sprite(screen, &cockpit_art::road, 73, 186, kBlue, LV_OPA_40);
     add_rule(screen, 87, 307, 292);
-    // Keep the cradle object so validated live AFR readings can recolor it
-    // when the wideband is eventually installed. For now it stays blue.
-    afr_cradle_sprite = add_sprite(screen, &cockpit_art::afr_cradle, 93, 321, kBlue);
+    // Unlit AEM-inspired 24-segment AFR sweep, not a live measurement.
+    // The handle is retained for future sensor-driven segment colouring.
+    afr_sweep_sprite = add_sprite(screen, &cockpit_art::afr_sweep, 93, 321, kBlue);
 
     // Android synchronizes the phone-local time over BLE. Show "--:--"
     // rather than fake a clock until the first successful synchronization.
     clock_label = make_label(screen, "--:--", &lv_font_montserrat_32,
-                             kWhite, 124, 21, 218, LV_TEXT_ALIGN_CENTER);
+                             kBlue, 124, 21, 218, LV_TEXT_ALIGN_CENTER);
     connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_20,
                             kMuted, 119, 64, 228, LV_TEXT_ALIGN_CENTER);
 
@@ -187,8 +187,9 @@ void draw_home() {
     lv_obj_set_size(street, 172, 149);
     lv_label_set_long_mode(street, LV_LABEL_LONG_DOT);
 
-    // AFR sits ABOVE a clean, nonfunctional lower semicircle cradle. This is
-    // just a static outline, not an invented AFR safety/lean/rich scale.
+    // A large AFR readout sits inside a 24-segment LED-style sweep.
+    // The segments have no active needle or measured range until a calibrated
+    // wideband is connected; colours stay static and do not imply safety.
     afr_label = make_label(screen, "AFR", &lv_font_montserrat_20,
                            kBlue, 158, 324, 150, LV_TEXT_ALIGN_CENTER);
     afr_value = make_label(screen, "--.-", &lv_font_montserrat_48,

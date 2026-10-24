@@ -39,7 +39,12 @@ Gc8BleSnapshot gc8_ble_snapshot();
 // authorized phone app; does not run Wi-Fi or know Meross credentials.
 void gc8_ble_garage_button_pressed();
 
-// Lower BOOT short press: emits bonded Bluetooth HID Consumer Control
-// Voice Command (usage 0x0CF). Android routes this to its default
-// digital assistant (Gemini when configured); GC8 Companion is not involved.
+// Lower BOOT short press: bonded HID Consumer Voice Command 0x0CF (report 1).
+// Android handles the command independently of the Companion app.
 void gc8_ble_app_button_pressed();
+
+// Lower BOOT long press: experimental HID Consumer Play/Pause 0x0CD (report 2)
+// held for 950ms after release, intended to exercise Android's headset-style
+// long-press voice-request route. May instead control media on some phones.
+// Neither gesture impersonates Samsung's Side/Power key.
+void gc8_ble_media_button_pressed();

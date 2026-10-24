@@ -185,3 +185,13 @@ git pull
 
 Wait for a successful compile before using ESP-IDF Flash Your Project on the **development board**, not the factory-reference unit. If compilation fails, capture the first actual compiler/configuration error; do not assume the new UI or local SDK automatically works.
 
+
+### 2026-10-23 — real clock header, subtle road, divider, future AFR colour
+
+Owner's latest feedback on the two-column preview: keep the left arrow + large distance / right street layout; replace the GC8 logo with **current phone-local time**; restore the divider and subdued perspective road; retain the clean U-shaped AFR cradle but eventually recolour it based on actual wideband AFR data.
+
+The new BLE parser accepts exactly `GC8|1|TIME|HH:MM:SS|12` or `|24`, validating digits, positions, and 24-hour/60-minute/60-second ranges. The `Gc8BleSnapshot` stores synchronized seconds since local midnight, 12/24-hour preference, and ESP32 monotonic timestamp from `esp_timer_get_time()`. The LVGL timer derives the updated time on each refresh independently of the navigation snapshot so **minute changes appear even if Maps produces no notification**. It displays `7:45 PM` in 12-hour mode or `19:45` in 24-hour mode, based on the connected phone. Before the first Bluetooth clock sync after a power cycle it honestly shows `--:--`; while disconnected after syncing it continues on the monotonic clock until the next sync. Android refreshes this every 60 seconds, covering drift and timezone/DST changes when connected.
+
+The perspective road is now returned as a **faint 40%-opacity, behind-guidance** A8 blue sprite at (73,186), using LVGL's image_opa property. A narrow horizontal blue divider at y=307 separates navigation from the AFR. The established 112×132 arrow and spacious split stay untouched; no destination or boost field is restored. The AFR cradle remains blue and static because **no live calibrated wideband reading exists yet**. A pointer to the LVGL cradle sprite is retained so it can respond to real AFR values later once the ECU/wideband signal and meaningful context-dependent colour mapping are defined. A single raw AFR threshold cannot safely distinguish cruising from on-boost mixtures, so we do not imply green = safe or red = dangerous without real data.
+
+Both new firmware and Android Companion must be built and deployed for the clock feature. No hardware build/flash or road test has been performed for this revision. An updated code-based 466×466 preview is available in the active conversation, but is **not an LVGL framebuffer capture**. Existing auto-migration of LVGL Montserrat 32/40/48 fonts in build.bat remains in place.

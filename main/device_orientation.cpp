@@ -186,7 +186,7 @@ void monitor_task(void *) {
                             // Counter-rotate content to compensate for the
                             // physical device's quarter-turn from USB-down.
                             const uint8_t wanted =
-                                static_cast<uint8_t>((sector - zero + 4) % 4);
+                                static_cast<uint8_t>((zero - sector + 4) % 4);
                             if (wanted != rotation.load()) {
                                 rotation.store(wanted);
                                 ESP_LOGI(TAG, "Stable gravity sector=%d, rotation=%u",

@@ -178,6 +178,67 @@ void draw_arrow(const char *turn) {
     }
 }
 
+void update_diagnostics(int64_t now_us) {
+    if (!diagnostics_visible || diagnostic_panel == nullptr ||
+        (diagnostics_refresh_us && now_us - diagnostics_refresh_us < 1000000LL)) return;
+    diagnostics_refresh_us = now_us;
+    const auto ble = gc8_ble_diagnostics();
+    const auto power = device_power_snapshot();
+    char line[64];
+    lv_label_set_text(diagnostic_values[0], ble.gatt_subscribed ? "CONNECTED" : "WAITING");
+    lv_label_set_text(diagnostic_values[1], ble.voice_hid_subscribed ? "SUBSCRIBED" : "NO HOST");
+    lv_label_set_text(diagnostic_values[2], ble.media_hid_subscribed ? "SUBSCRIBED" : "NO HOST");
+    std::snprintf(line, sizeof(line), "%u  total:%lu",
+        static_cast<unsigned>(ble.active_connections),
+        static_cast<unsigned long>(ble.connections));
+    lv_label_set_text(diagnostic_values[3], line);
+    if (ble.last_disconnect_reason >= 0) {
+        std::snprintf(line, sizeof(line), "code %d  (#%lu)",
+            ble.last_disconnect_reason,
+            static_cast<unsigned long>(ble.disconnects));
+        lv_label_set_text(diagnostic_values[4], line);
+    } else {
+        lv_label_set_text(diagnostic_values[4], "NONE");
+    }
+    const uint32_t seconds = static_cast<uint32_t>(now_us / 1000000);
+    std::snprintf(line, sizeof(line), "%02lu:%02lu:%02lu",
+        static_cast<unsigned long>(seconds / 3600),
+        static_cast<unsigned long>((seconds / 60) % 60),
+        static_cast<unsigned long>(seconds % 60));
+    lv_label_set_text(diagnostic_values[5], line);
+    std::snprintf(line, sizeof(line), "%s  (#%lu)",
+        reset_reason_text(boot_reason), static_cast<unsigned long>(boot_count));
+    lv_label_set_text(diagnostic_values[6], line);
+    lv_label_set_text(diagnostic_values[7],
+        !power.vbus_valid ? "UNKNOWN" : power.external_power ? "USB POWER" : "ON BATTERY");
+    if (!power.vbus_valid) {
+        lv_label_set_text(diagnostic_values[8], "UNKNOWN");
+    } else if (!power.battery_present) {
+        lv_label_set_text(diagnostic_values[8], "NOT INSTALLED");
+    } else if (!power.valid) {
+        lv_label_set_text(diagnostic_values[8], "GAUGE UNKNOWN");
+    } else {
+        std::snprintf(line, sizeof(line), "%u%%  %s",
+            static_cast<unsigned>(power.percent),
+            power.charging ? "CHARGING" : "NOT CHARGING");
+        lv_label_set_text(diagnostic_values[8], line);
+    }
+    std::snprintf(line, sizeof(line), "%s  %u deg",
+        device_orientation_is_auto() ? "AUTO" : "LOCK",
+        static_cast<unsigned>(device_orientation_rotation() * 90));
+    lv_label_set_text(diagnostic_values[9], line);
+    std::snprintf(line, sizeof(line), "%u%%   TAP",
+        static_cast<unsigned>(device_power_user_brightness()));
+    lv_label_set_text(diagnostic_values[10], line);
+    const unsigned idle_s = device_power_idle_dim_seconds();
+    if (idle_s == 0) {
+        lv_label_set_text(diagnostic_values[11], "OFF   TAP");
+    } else {
+        std::snprintf(line, sizeof(line), "%u min   TAP", idle_s / 60);
+        lv_label_set_text(diagnostic_values[11], line);
+    }
+}
+
 void refresh_navigation(lv_timer_t *) {
     // This runs inside the BSP/LVGL GUI task: serialize controller commands
     // with its SPI flushes. The screen is square, so hardware quarter turns

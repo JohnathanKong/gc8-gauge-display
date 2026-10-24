@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "gc8_ble.h"
 #include "device_power.h"
+#include "device_orientation.h"
 #include "garage_button.h"
 #include "nav_arrow_assets.h"
 #include "cockpit_art.h"
@@ -46,6 +47,8 @@ lv_obj_t *afr_sweep_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
 bool first_update = true;
+uint8_t applied_orientation = 0; // Native CO5300 starts unrotated.
+bool orientation_long_press_handled = false;
 
 lv_obj_t *make_label(lv_obj_t *parent, const char *value, const lv_font_t *font,
                      uint32_t color, int x, int y, int width,
@@ -132,6 +135,22 @@ void draw_arrow(const char *turn) {
 }
 
 void refresh_navigation(lv_timer_t *) {
+    // This runs inside the BSP/LVGL GUI task: serialize controller commands
+    // with its SPI flushes. The screen is square, so hardware quarter turns
+    // rotate all artwork, labels and navigation arrows together.
+    const uint8_t requested = device_orientation_rotation();
+    if (requested != applied_orientation) {
+        const esp_err_t err =
+            bsp_display_rotation_set(static_cast<bsp_display_rotation_t>(requested));
+        if (err == ESP_OK) {
+            applied_orientation = requested;
+            lv_obj_invalidate(lv_screen_active());
+            ESP_LOGI(TAG, "CO5300 display orientation=%u deg",
+                     static_cast<unsigned>(requested * 90));
+        } else {
+            ESP_LOGW(TAG, "Display orientation failed: %s", esp_err_to_name(err));
+        }
+    }
     const auto current = gc8_ble_snapshot();
 
     // Evaluate the transient overlay BEFORE the snapshot-change guard, so
@@ -287,9 +306,30 @@ void refresh_navigation(lv_timer_t *) {
     }
 }
 
+void orientation_touch_event(lv_event_t *event) {
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_PRESSED) {
+        orientation_long_press_handled = false;
+    } else if (code == LV_EVENT_LONG_PRESSED) {
+        orientation_long_press_handled = true;
+        if (device_orientation_calibrate_auto()) {
+            ESP_LOGI(TAG, "AUTO rotation enabled; USB-down set as 0 degrees");
+        } else {
+            ESP_LOGW(TAG, "AUTO calibration needs a stationary upright gauge");
+        }
+    } else if (code == LV_EVENT_CLICKED && !orientation_long_press_handled) {
+        device_orientation_next_manual();
+    }
+}
+
 void draw_home() {
     auto *screen = lv_screen_active();
     lv_obj_clean(screen);
+    // All current dashboard widgets are informational; use the existing
+    // capacitive touchscreen without stealing GPIO PWR (garage) or BOOT
+    // (voice/media assistant). Tap = rotate/lock, long press = calibrate AUTO.
+    lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(screen, orientation_touch_event, LV_EVENT_ALL, nullptr);
     lv_obj_set_style_bg_color(screen, lv_color_hex(kBlack), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
@@ -462,6 +502,9 @@ extern "C" void app_main(void) {
     // No heavy atan2/exp loop runs inside the UI refresh/render critical path.
     cockpit_art::rasterize();
     bsp_display_start();
+    // The IMU shares the same BSP-managed I2C bus as the AXP2101 battery.
+    // Its independent task never calls LVGL or touches the BLE/GATT stack.
+    device_orientation_start();
     bsp_display_lock(-1);
     draw_home();
     bsp_display_unlock();

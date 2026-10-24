@@ -105,7 +105,7 @@ void poll_task(void *) {
                     if (duration >= kMinPressUs && duration <= kMaxPressUs &&
                         now - boot_last_at >= kBootCooldownUs) {
                         boot_last_at = now;
-                        ESP_LOGI(TAG, "Lower BOOT pressed; sending Android HID voice key");
+                        ESP_LOGI(TAG, "Lower BOOT pressed; requesting Bluetooth Side-key long hold");
                         gc8_ble_app_button_pressed();
                     }
                 }

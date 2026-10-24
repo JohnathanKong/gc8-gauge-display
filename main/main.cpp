@@ -454,5 +454,5 @@ extern "C" void app_main(void) {
     bsp_display_unlock();
     device_power_start(); // Sample genuine battery on BSP's shared I2C bus.
     gc8_ble_start();
-    garage_button_start(); // Upper PWR only; BOOT remains available for flashing.
+    garage_button_start(); // Upper PWR=garage; short lower BOOT=HID voice (GPIO0 stays flash strap).
 }

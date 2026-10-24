@@ -135,6 +135,8 @@ void set_connection(bool connected) {
         snapshot.last_guidance_us = 0;
         snapshot.has_demo_afr = false;
         snapshot.destination[0] = '\0';
+        snapshot.guidance_title[0] = '\0';
+        snapshot.guidance_hint[0] = '\0';
     }
     portEXIT_CRITICAL(&snapshot_lock);
 }
@@ -208,6 +210,8 @@ bool parse_test_message(char *buffer) {
         snapshot.maneuver[0] = '\0';
         snapshot.distance[0] = '\0';
         snapshot.road[0] = '\0';
+        snapshot.guidance_title[0] = '\0';
+        snapshot.guidance_hint[0] = '\0';
         portEXIT_CRITICAL(&snapshot_lock);
         return true;
     }
@@ -223,6 +227,8 @@ bool parse_test_message(char *buffer) {
         snapshot.maneuver[0] = '\0';
         snapshot.distance[0] = '\0';
         snapshot.road[0] = '\0';
+        snapshot.guidance_title[0] = '\0';
+        snapshot.guidance_hint[0] = '\0';
         snapshot.destination[0] = '\0';
         portEXIT_CRITICAL(&snapshot_lock);
         return true;
@@ -237,6 +243,8 @@ bool parse_test_message(char *buffer) {
         snapshot.maneuver[0] = '\0';
         snapshot.distance[0] = '\0';
         snapshot.road[0] = '\0';
+        snapshot.guidance_title[0] = '\0';
+        snapshot.guidance_hint[0] = '\0';
         snapshot.destination[0] = '\0';
         portEXIT_CRITICAL(&snapshot_lock);
         return true;
@@ -256,6 +264,40 @@ bool parse_test_message(char *buffer) {
         std::snprintf(snapshot.destination, sizeof(snapshot.destination), "%s", place);
         snapshot.route_active = true;
         snapshot.has_navigation = false;
+        snapshot.guidance_stale = false;
+        snapshot.last_guidance_us = 0;
+        snapshot.has_demo_afr = false;
+        snapshot.maneuver[0] = '\0';
+        snapshot.distance[0] = '\0';
+        snapshot.road[0] = '\0';
+        snapshot.guidance_title[0] = '\0';
+        snapshot.guidance_hint[0] = '\0';
+        portEXIT_CRITICAL(&snapshot_lock);
+        return true;
+    }
+    // Text-only Maps guidance for cases with no reliable turn bearing or
+    // distance. Supported only when the phone explicitly reports this text:
+    // GC8|1|INFO|EXIT PARKING LOT|TOWARD COURTYARD LN
+    // GC8|1|INFO|DESTINATION RIGHT|FOLLOW GOOGLE MAPS
+    // This NEVER asserts arrival, and never manufactures a turn arrow.
+    constexpr char kInfoPrefix[] = "GC8|1|INFO|";
+    if (std::strncmp(buffer, kInfoPrefix, sizeof(kInfoPrefix) - 1) == 0) {
+        char *heading = buffer + sizeof(kInfoPrefix) - 1;
+        char *separator = std::strchr(heading, '|');
+        if (!separator) return false;
+        *separator = '\0';
+        const char *hint = separator + 1;
+        if (!*heading || !valid_ascii(heading) || !valid_ascii(hint) ||
+            std::strchr(hint, '|') != nullptr ||
+            std::strlen(heading) >= sizeof(snapshot.guidance_title) ||
+            std::strlen(hint) >= sizeof(snapshot.guidance_hint)) return false;
+        portENTER_CRITICAL(&snapshot_lock);
+        std::snprintf(snapshot.guidance_title, sizeof(snapshot.guidance_title),
+                      "%s", heading);
+        std::snprintf(snapshot.guidance_hint, sizeof(snapshot.guidance_hint),
+                      "%s", hint);
+        snapshot.has_navigation = false;
+        snapshot.route_active = true;
         snapshot.guidance_stale = false;
         snapshot.last_guidance_us = 0;
         snapshot.has_demo_afr = false;
@@ -310,6 +352,8 @@ bool parse_test_message(char *buffer) {
     std::snprintf(snapshot.distance, sizeof(snapshot.distance), "%s", parts[3]);
     std::snprintf(snapshot.road, sizeof(snapshot.road), "%s", parts[4]);
     std::snprintf(snapshot.destination, sizeof(snapshot.destination), "%s", destination ? destination : "");
+    snapshot.guidance_title[0] = '\0';
+    snapshot.guidance_hint[0] = '\0';
     snapshot.has_demo_afr = demo_afr != nullptr;
     std::snprintf(snapshot.demo_afr, sizeof(snapshot.demo_afr), "%s", demo_afr ? demo_afr + 5 : "");
     snapshot.has_navigation = true;

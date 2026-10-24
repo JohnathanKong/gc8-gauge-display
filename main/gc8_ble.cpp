@@ -286,6 +286,16 @@ int on_write(uint16_t, uint16_t, struct ble_gatt_access_ctxt *ctx, void *) {
     return 0;
 }
 
+// NimBLE validates an access callback for every GATT characteristic, even
+// notify-only ones. This characteristic is never client-readable/writable;
+// its 18-byte button events are sent with ble_gatts_notify_custom().
+int on_garage_notification_access(uint16_t, uint16_t,
+                                  ble_gatt_access_ctxt *ctx, void *) {
+    return ctx->op == BLE_GATT_ACCESS_OP_READ_CHR
+        ? BLE_ATT_ERR_READ_NOT_PERMITTED
+        : BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+}
+
 // Zero-initialize NimBLE C structs; C++ -Wmissing-field-initializers is an error.
 ble_gatt_chr_def characteristics[3] = {};
 ble_gatt_svc_def services[2] = {};
@@ -296,6 +306,7 @@ void configure_gatt() {
     // Add a separate notify-only characteristic; existing WRITE_UUID and
     // its navigation/clock protocol remain unchanged and backwards-compatible.
     characteristics[1].uuid = &garage_event_uuid.u;
+    characteristics[1].access_cb = on_garage_notification_access;
     characteristics[1].flags = BLE_GATT_CHR_F_NOTIFY;
     characteristics[1].val_handle = &garage_event_value_handle;
     services[0].type = BLE_GATT_SVC_TYPE_PRIMARY;

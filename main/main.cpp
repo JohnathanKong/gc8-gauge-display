@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstring>
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "gc8_ble.h"
 #include "nav_arrow_assets.h"
 #include "cockpit_art.h"
@@ -14,8 +15,11 @@ constexpr uint32_t kBlack = 0x030609;
 constexpr uint32_t kWhite = 0xF5F9FF;
 constexpr uint32_t kMuted = 0x8297AE;
 constexpr uint32_t kBlue = 0x229EFF;
+constexpr uint32_t kRule = 0x205D92;
 
 lv_obj_t *connection = nullptr;
+lv_obj_t *clock_label = nullptr;
+char displayed_time[20] = "";
 lv_obj_t *distance = nullptr;
 lv_obj_t *street = nullptr;
 lv_obj_t *maneuver_graphic = nullptr;
@@ -39,14 +43,29 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *value, const lv_font_t *font,
 }
 
 void add_sprite(lv_obj_t *screen, const lv_image_dsc_t *source,
-                int x, int y, uint32_t color) {
+                int x, int y, uint32_t color,
+                lv_opa_t opacity = LV_OPA_COVER) {
     auto *sprite = lv_image_create(screen);
     lv_image_set_src(sprite, source);
     lv_obj_set_pos(sprite, x, y);
     lv_obj_set_style_image_recolor(sprite, lv_color_hex(color), 0);
     lv_obj_set_style_image_recolor_opa(sprite, LV_OPA_COVER, 0);
+    lv_obj_set_style_image_opa(sprite, opacity, 0);
     lv_obj_remove_flag(sprite, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(sprite, LV_OBJ_FLAG_CLICKABLE);
+}
+
+void add_rule(lv_obj_t *screen, int x, int y, int width) {
+    auto *rule = lv_obj_create(screen);
+    lv_obj_set_pos(rule, x, y);
+    lv_obj_set_size(rule, width, 2);
+    lv_obj_set_style_bg_color(rule, lv_color_hex(kRule), 0);
+    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(rule, 0, 0);
+    lv_obj_set_style_radius(rule, 0, 0);
+    lv_obj_set_style_pad_all(rule, 0, 0);
+    lv_obj_remove_flag(rule, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(rule, LV_OBJ_FLAG_CLICKABLE);
 }
 
 // Preserve the previously tested LEFT/RIGHT/STRAIGHT artwork and BLE protocol.
@@ -65,6 +84,30 @@ void draw_arrow(const char *turn) {
 
 void refresh_navigation(lv_timer_t *) {
     const auto current = gc8_ble_snapshot();
+
+    // The clock advances independently of navigation packets. A phone sync
+    // sets local wall time and 12/24h preference; monotonic ESP32 uptime
+    // supplies the seconds until the next minute/reconnect synchronization.
+    char time_text[20] = "--:--";
+    if (current.has_clock) {
+        const int64_t elapsed_us = esp_timer_get_time() - current.clock_synced_us;
+        const int64_t elapsed_seconds = elapsed_us > 0 ? elapsed_us / 1000000 : 0;
+        const int second_of_day =
+            static_cast<int>((current.clock_seconds + elapsed_seconds) % 86400);
+        const int hour = second_of_day / 3600;
+        const int minute = (second_of_day / 60) % 60;
+        if (current.clock_24h) {
+            std::snprintf(time_text, sizeof(time_text), "%02d:%02d", hour, minute);
+        } else {
+            const int h12 = hour % 12 == 0 ? 12 : hour % 12;
+            std::snprintf(time_text, sizeof(time_text), "%d:%02d %s",
+                          h12, minute, hour < 12 ? "AM" : "PM");
+        }
+    }
+    if (std::strcmp(displayed_time, time_text) != 0) {
+        lv_label_set_text(clock_label, time_text);
+        std::snprintf(displayed_time, sizeof(displayed_time), "%s", time_text);
+    }
     if (!first_update && std::memcmp(&previous, &current, sizeof(current)) == 0) return;
     first_update = false;
     previous = current;
@@ -104,14 +147,18 @@ void draw_home() {
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Readable from the driver's seat: 2-column navigation above a single,
-    // centered AFR readout. All visible elements respect the 466px round edge.
-    // No destination, boost, decorative road or split gauge divider.
+    // Two-column navigation and an always-visible single AFR instrument.
+    // Keep the perspective roadway behind guidance at low alpha so it
+    // supplies visual context without competing with the arrow/street text.
     cockpit_art::rasterize();
+    add_sprite(screen, &cockpit_art::road, 73, 186, kBlue, LV_OPA_40);
+    add_rule(screen, 87, 307, 292);
     add_sprite(screen, &cockpit_art::afr_cradle, 93, 321, kBlue);
 
-    make_label(screen, "GC8", &lv_font_montserrat_26,
-               kBlue, 179, 23, 108, LV_TEXT_ALIGN_CENTER);
+    // Android synchronizes the phone-local time over BLE. Show "--:--"
+    // rather than fake a clock until the first successful synchronization.
+    clock_label = make_label(screen, "--:--", &lv_font_montserrat_32,
+                             kWhite, 124, 21, 218, LV_TEXT_ALIGN_CENTER);
     connection = make_label(screen, "BLE WAITING", &lv_font_montserrat_20,
                             kMuted, 119, 64, 228, LV_TEXT_ALIGN_CENTER);
 

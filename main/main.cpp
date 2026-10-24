@@ -2,6 +2,8 @@
 #include <cstring>
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_system.h"
+#include "nvs.h"
 #include "gc8_ble.h"
 #include "device_power.h"
 #include "device_orientation.h"
@@ -50,12 +52,47 @@ void orientation_feedback(const char *message) {
 }
 int last_device_battery = -2;
 bool last_battery_charging = false;
+bool last_external_power = false, last_power_status_valid = false;
+bool diagnostics_visible = false;
+int applied_brightness = -1;
+lv_obj_t *diagnostic_panel = nullptr;
+lv_obj_t *diagnostic_values[12] = {};
+int64_t diagnostics_refresh_us = 0;
+uint32_t boot_count = 0;
+esp_reset_reason_t boot_reason = ESP_RST_UNKNOWN;
 lv_obj_t *afr_sweep_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
 bool first_update = true;
 uint8_t applied_orientation = 0; // Native CO5300 starts unrotated.
 bool orientation_long_press_handled = false;
+
+const char *reset_reason_text(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_POWERON: return "POWER ON";
+        case ESP_RST_SW: return "SOFTWARE";
+        case ESP_RST_PANIC: return "PANIC";
+        case ESP_RST_INT_WDT: return "INT WDT";
+        case ESP_RST_TASK_WDT: return "TASK WDT";
+        case ESP_RST_BROWNOUT: return "BROWNOUT";
+        case ESP_RST_DEEPSLEEP: return "DEEP SLEEP";
+        case ESP_RST_EXT: return "EXTERNAL";
+        default: return "OTHER";
+    }
+}
+
+void count_device_boot() {
+    boot_reason = esp_reset_reason();
+    nvs_handle_t handle = 0;
+    if (nvs_open("gc8_boot", NVS_READWRITE, &handle) != ESP_OK) return;
+    uint32_t previous_boots = 0;
+    nvs_get_u32(handle, "count", &previous_boots);
+    boot_count = previous_boots + 1;
+    if (nvs_set_u32(handle, "count", boot_count) == ESP_OK) nvs_commit(handle);
+    nvs_close(handle);
+    ESP_LOGI(TAG, "Boot count=%u reset=%s", static_cast<unsigned>(boot_count),
+             reset_reason_text(boot_reason));
+}
 
 lv_obj_t *make_label(lv_obj_t *parent, const char *value, const lv_font_t *font,
                      uint32_t color, int x, int y, int width,

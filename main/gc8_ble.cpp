@@ -17,6 +17,7 @@
 #include "nimble/nimble_port_freertos.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "store/config/ble_store_config.h"
 
 namespace {
 constexpr char TAG[] = "gc8_ble";
@@ -30,6 +31,42 @@ static const ble_uuid128_t write_uuid = BLE_UUID128_INIT(
 static const ble_uuid128_t garage_event_uuid = BLE_UUID128_INIT(
     0x03, 0x00, 0x00, 0x75, 0x0b, 0x4a, 0xf0, 0xa4,
     0x67, 0x4b, 0x8f, 0x6b, 0x40, 0x1c, 0xe3, 0xa8);
+// Standard HID-over-GATT Consumer Control (0x1812). Android handles this
+// input itself, even when GC8 Companion is not the foreground Activity.
+static const ble_uuid16_t hid_service_uuid = BLE_UUID16_INIT(0x1812);
+static const ble_uuid16_t hid_info_uuid = BLE_UUID16_INIT(0x2A4A);
+static const ble_uuid16_t hid_report_map_uuid = BLE_UUID16_INIT(0x2A4B);
+static const ble_uuid16_t hid_control_uuid = BLE_UUID16_INIT(0x2A4C);
+static const ble_uuid16_t hid_report_uuid = BLE_UUID16_INIT(0x2A4D);
+static const ble_uuid16_t hid_protocol_uuid = BLE_UUID16_INIT(0x2A4E);
+static const ble_uuid16_t hid_report_ref_uuid = BLE_UUID16_INIT(0x2908);
+
+// Report ID 1, one Consumer Control bit: Usage 0x0CF (Voice Command).
+// The GATT Report value is 0x01 while pressed, 0x00 on release; Report ID
+// lives in the Report Reference descriptor, not in the GATT value bytes.
+constexpr uint8_t hid_report_map[] = {
+    0x05, 0x0C,  // Usage Page (Consumer)
+    0x09, 0x01,  // Usage (Consumer Control)
+    0xA1, 0x01,  // Collection (Application)
+    0x85, 0x01,  // Report ID 1
+    0x09, 0xCF,  // Usage (Voice Command)
+    0x15, 0x00,  // Logical Min 0
+    0x25, 0x01,  // Logical Max 1
+    0x75, 0x01,  // Report Size 1
+    0x95, 0x01,  // Report Count 1
+    0x81, 0x02,  // Input: variable, absolute
+    0x75, 0x07,  // 7 padding bits
+    0x95, 0x01,
+    0x81, 0x03,  // Input: constant padding
+    0xC0         // End Collection
+};
+constexpr uint8_t hid_info[] = {0x11, 0x01, 0x00, 0x02}; // HID 1.11, normally connectable
+constexpr uint8_t hid_report_reference[] = {0x01, 0x01}; // ID 1, input report
+std::atomic<bool> hid_subscribed{false};
+std::atomic<uint16_t> hid_connection_handle{0};
+uint16_t hid_report_value_handle = 0;
+uint8_t hid_protocol_mode = 1;
+uint8_t hid_current_report = 0;
 std::atomic<bool> garage_subscribed{false};
 std::atomic<uint16_t> garage_connection_handle{0};
 uint16_t garage_event_value_handle = 0;
@@ -308,9 +345,53 @@ int on_garage_notification_access(uint16_t, uint16_t,
         : BLE_ATT_ERR_WRITE_NOT_PERMITTED;
 }
 
+// HID-only GATT characteristic handlers. The GC8 app service remains untouched.
+int hid_append(ble_gatt_access_ctxt *ctx, const uint8_t *bytes, size_t length) {
+    return os_mbuf_append(ctx->om, bytes, length) == 0
+        ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+int hid_read_only(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *arg) {
+    if (ctx->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    const auto selector = reinterpret_cast<uintptr_t>(arg);
+    if (selector == 1) return hid_append(ctx, hid_info, sizeof(hid_info));
+    if (selector == 2) return hid_append(ctx, hid_report_map, sizeof(hid_report_map));
+    return BLE_ATT_ERR_UNLIKELY;
+}
+int hid_report_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
+    if (ctx->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    return hid_append(ctx, &hid_current_report, sizeof(hid_current_report));
+}
+int hid_report_ref_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
+    if (ctx->op != BLE_GATT_ACCESS_OP_READ_DSC) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    return hid_append(ctx, hid_report_reference, sizeof(hid_report_reference));
+}
+int hid_protocol_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
+    if (ctx->op == BLE_GATT_ACCESS_OP_READ_CHR)
+        return hid_append(ctx, &hid_protocol_mode, 1);
+    if (ctx->op != BLE_GATT_ACCESS_OP_WRITE_CHR || OS_MBUF_PKTLEN(ctx->om) != 1)
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    uint8_t requested = 0;
+    if (ble_hs_mbuf_to_flat(ctx->om, &requested, 1, nullptr) != 0 || requested > 1)
+        return BLE_ATT_ERR_UNLIKELY;
+    // Consumer Control has no Boot Protocol report.
+    if (requested == 0) return BLE_ATT_ERR_UNLIKELY;
+    hid_protocol_mode = requested;
+    return 0;
+}
+int hid_control_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
+    if (ctx->op != BLE_GATT_ACCESS_OP_WRITE_CHR || OS_MBUF_PKTLEN(ctx->om) != 1)
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    uint8_t value = 0;
+    if (ble_hs_mbuf_to_flat(ctx->om, &value, 1, nullptr) != 0 || value > 1)
+        return BLE_ATT_ERR_UNLIKELY;
+    return 0;
+}
+ble_gatt_dsc_def hid_report_descriptors[2] = {};
+ble_gatt_chr_def hid_characteristics[6] = {};
+
 // Zero-initialize NimBLE C structs; C++ -Wmissing-field-initializers is an error.
 ble_gatt_chr_def characteristics[3] = {};
-ble_gatt_svc_def services[2] = {};
+ble_gatt_svc_def services[3] = {};
 void configure_gatt() {
     characteristics[0].uuid = &write_uuid.u;
     characteristics[0].access_cb = on_write;
@@ -324,6 +405,39 @@ void configure_gatt() {
     services[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
     services[0].uuid = &service_uuid.u;
     services[0].characteristics = characteristics;
+
+    hid_report_descriptors[0].uuid = &hid_report_ref_uuid.u;
+    hid_report_descriptors[0].att_flags = BLE_ATT_F_READ;
+    hid_report_descriptors[0].access_cb = hid_report_ref_access;
+
+    // HID Information
+    hid_characteristics[0].uuid = &hid_info_uuid.u;
+    hid_characteristics[0].access_cb = hid_read_only;
+    hid_characteristics[0].arg = reinterpret_cast<void *>(static_cast<uintptr_t>(1));
+    hid_characteristics[0].flags = BLE_GATT_CHR_F_READ;
+    // Report Map
+    hid_characteristics[1].uuid = &hid_report_map_uuid.u;
+    hid_characteristics[1].access_cb = hid_read_only;
+    hid_characteristics[1].arg = reinterpret_cast<void *>(static_cast<uintptr_t>(2));
+    hid_characteristics[1].flags = BLE_GATT_CHR_F_READ;
+    // Report value: encrypted bonded HID host only.
+    hid_characteristics[2].uuid = &hid_report_uuid.u;
+    hid_characteristics[2].access_cb = hid_report_access;
+    hid_characteristics[2].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY |
+                                   BLE_GATT_CHR_F_READ_ENC;
+    hid_characteristics[2].descriptors = hid_report_descriptors;
+    hid_characteristics[2].val_handle = &hid_report_value_handle;
+    // HID Control Point
+    hid_characteristics[3].uuid = &hid_control_uuid.u;
+    hid_characteristics[3].access_cb = hid_control_access;
+    hid_characteristics[3].flags = BLE_GATT_CHR_F_WRITE_NO_RSP;
+    // Protocol Mode
+    hid_characteristics[4].uuid = &hid_protocol_uuid.u;
+    hid_characteristics[4].access_cb = hid_protocol_access;
+    hid_characteristics[4].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE_NO_RSP;
+    services[1].type = BLE_GATT_SVC_TYPE_PRIMARY;
+    services[1].uuid = &hid_service_uuid.u;
+    services[1].characteristics = hid_characteristics;
 }
 
 void advertise();
@@ -332,6 +446,7 @@ int gap_event(ble_gap_event *event, void *) {
         case BLE_GAP_EVENT_CONNECT:
             ESP_LOGI(TAG, "BLE connect status=%d", event->connect.status);
             garage_subscribed.store(false);
+            hid_subscribed.store(false);
             if (event->connect.status == 0) {
                 garage_connection_handle.store(event->connect.conn_handle);
                 set_connection(true);
@@ -340,6 +455,7 @@ int gap_event(ble_gap_event *event, void *) {
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(TAG, "BLE disconnected");
             garage_subscribed.store(false);
+            hid_subscribed.store(false);
             set_connection(false);
             advertise();
             return 0;
@@ -349,6 +465,16 @@ int gap_event(ble_gap_event *event, void *) {
                 ESP_LOGI(TAG, "Garage PWR event notify subscribed=%d",
                          static_cast<int>(garage_subscribed.load()));
             }
+            if (event->subscribe.attr_handle == hid_report_value_handle) {
+                hid_subscribed.store(event->subscribe.cur_notify != 0);
+                hid_connection_handle.store(event->subscribe.conn_handle);
+                ESP_LOGI(TAG, "Android HID voice notify subscribed=%d",
+                         static_cast<int>(hid_subscribed.load()));
+            }
+            return 0;
+        case BLE_GAP_EVENT_ENC_CHANGE:
+            ESP_LOGI(TAG, "BLE security changed, status=%d",
+                     event->enc_change.status);
             return 0;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             advertise();
@@ -363,6 +489,11 @@ void advertise() {
     fields.uuids128 = const_cast<ble_uuid128_t *>(&service_uuid);
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
+    fields.uuids16 = const_cast<ble_uuid16_t *>(&hid_service_uuid);
+    fields.num_uuids16 = 1;
+    fields.uuids16_is_complete = 1;
+    fields.appearance = 0x03C0; // Bluetooth Appearance: generic HID
+    fields.appearance_is_present = 1;
     int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) { ESP_LOGE(TAG, "Advertising fields error=%d", rc); return; }
 
@@ -419,26 +550,49 @@ void gc8_ble_garage_button_pressed() {
 }
 
 void gc8_ble_app_button_pressed() {
-    if (!garage_subscribed.load() || !gc8_ble_snapshot().connected ||
-        garage_event_value_handle == 0) {
-        show_garage_banner("APP: PHONE OFFLINE");
-        ESP_LOGW(TAG, "BOOT pressed but Companion is not subscribed");
+    // Bottom BOOT emits a real HID key; the Android GC8 app need not be open.
+    if (!hid_subscribed.load() || hid_report_value_handle == 0) {
+        show_garage_banner("PAIR VOICE REMOTE");
+        ESP_LOGW(TAG, "HID not subscribed; pair GC8 Display in phone Bluetooth settings");
         return;
     }
-    constexpr char event[] = "GC8|1|APP|PRESS";
-    auto *packet = ble_hs_mbuf_from_flat(event, sizeof(event) - 1);
-    if (!packet) {
-        show_garage_banner("APP: BLE ERROR");
+    const uint16_t conn = hid_connection_handle.load();
+    ble_gap_conn_desc desc = {};
+    if (ble_gap_conn_find(conn, &desc) != 0 ||
+        !desc.sec_state.encrypted || !desc.sec_state.bonded) {
+        show_garage_banner("PAIR VOICE REMOTE");
+        ESP_LOGW(TAG, "HID connection is not bonded and encrypted");
         return;
     }
-    const int rc = ble_gatts_notify_custom(
-        garage_connection_handle.load(), garage_event_value_handle, packet);
+    // Press and release the standard Consumer Control Voice Command usage
+    // (0x0CF). The OS maps the HID report to KEYCODE_VOICE_ASSIST.
+    const uint8_t pressed = 1;
+    const uint8_t released = 0;
+    auto *down = ble_hs_mbuf_from_flat(&pressed, 1);
+    if (!down) {
+        show_garage_banner("VOICE BLE ERROR");
+        return;
+    }
+    int rc = ble_gatts_notify_custom(conn, hid_report_value_handle, down);
+    if (rc != 0) {
+        show_garage_banner("VOICE BLE ERROR");
+        ESP_LOGW(TAG, "HID key-down send failed: %d", rc);
+        return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(90));
+    auto *up = ble_hs_mbuf_from_flat(&released, 1);
+    if (!up) {
+        show_garage_banner("VOICE BLE ERROR");
+        return;
+    }
+    rc = ble_gatts_notify_custom(conn, hid_report_value_handle, up);
     if (rc == 0) {
-        show_garage_banner("APP REQUESTED");
-        ESP_LOGI(TAG, "BOOT app event delivered to BLE stack");
+        hid_current_report = 0;
+        show_garage_banner("VOICE KEY SENT");
+        ESP_LOGI(TAG, "Consumer HID Voice Command press/release sent");
     } else {
-        show_garage_banner("APP: BLE ERROR");
-        ESP_LOGW(TAG, "BOOT BLE notification failed: %d", rc);
+        show_garage_banner("VOICE BLE ERROR");
+        ESP_LOGW(TAG, "HID key-up send failed: %d", rc);
     }
 }
 
@@ -453,6 +607,13 @@ void gc8_ble_start() {
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_svc_gap_device_name_set("GC8 Display");
+    // Bonding is mandatory for HID input. Do not erase NVS on regular boot.
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_store_config_init();
     configure_gatt();
     int rc = ble_gatts_count_cfg(services);
     if (rc == 0) rc = ble_gatts_add_svcs(services);

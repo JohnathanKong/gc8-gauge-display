@@ -19,6 +19,10 @@
 #include "services/gatt/ble_svc_gatt.h"
 #include "store/config/ble_store_config.h"
 
+// ESP-IDF NimBLE implements this C function but does not declare it in its
+// public headers; follow Espressif's HID example with explicit C linkage.
+extern "C" void ble_store_config_init(void);
+
 namespace {
 constexpr char TAG[] = "gc8_ble";
 // UUID a8e31c40-6b8f-4b67-a4f0-4a0b75000001; BLE_UUID128_INIT takes little-endian bytes.
@@ -624,6 +628,7 @@ void gc8_ble_start() {
     ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_store_config_init();
+    ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
     configure_gatt();
     int rc = ble_gatts_count_cfg(services);
     if (rc == 0) rc = ble_gatts_add_svcs(services);

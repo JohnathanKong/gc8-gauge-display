@@ -41,6 +41,13 @@ lv_obj_t *garage_toast = nullptr;
 lv_obj_t *garage_toast_text = nullptr;
 bool garage_toast_visible = false;
 char garage_previous_text[32] = {};
+char orientation_notice[32] = {};
+int64_t orientation_notice_until_us = 0;
+
+void orientation_feedback(const char *message) {
+    std::snprintf(orientation_notice, sizeof(orientation_notice), "%s", message);
+    orientation_notice_until_us = esp_timer_get_time() + 2500000LL;
+}
 int last_device_battery = -2;
 bool last_battery_charging = false;
 lv_obj_t *afr_sweep_sprite = nullptr;
@@ -155,14 +162,20 @@ void refresh_navigation(lv_timer_t *) {
 
     // Evaluate the transient overlay BEFORE the snapshot-change guard, so
     // it disappears on time even when Maps/BLE are completely idle.
-    const bool banner_active = current.garage_banner[0] &&
-        esp_timer_get_time() < current.garage_banner_until_us;
+    const int64_t now_us = esp_timer_get_time();
+    const bool garage_active = current.garage_banner[0] &&
+                              now_us < current.garage_banner_until_us;
+    const bool orientation_active = orientation_notice[0] &&
+                                    now_us < orientation_notice_until_us;
+    const bool banner_active = garage_active || orientation_active;
+    const char *banner_message = garage_active ? current.garage_banner :
+                                 orientation_active ? orientation_notice : "";
     if (banner_active) {
         if (!garage_toast_visible ||
-            std::strcmp(garage_previous_text, current.garage_banner) != 0) {
-            lv_label_set_text(garage_toast_text, current.garage_banner);
+            std::strcmp(garage_previous_text, banner_message) != 0) {
+            lv_label_set_text(garage_toast_text, banner_message);
             std::snprintf(garage_previous_text, sizeof(garage_previous_text),
-                          "%s", current.garage_banner);
+                          "%s", banner_message);
             lv_obj_remove_flag(garage_toast, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(garage_toast);
             // Slide down over the navigation for a few seconds. Clock and
@@ -313,12 +326,18 @@ void orientation_touch_event(lv_event_t *event) {
     } else if (code == LV_EVENT_LONG_PRESSED) {
         orientation_long_press_handled = true;
         if (device_orientation_calibrate_auto()) {
+            orientation_feedback("AUTO ROTATE ON");
             ESP_LOGI(TAG, "AUTO rotation enabled; USB-down set as 0 degrees");
         } else {
+            orientation_feedback("HOLD UPRIGHT TO CALIBRATE");
             ESP_LOGW(TAG, "AUTO calibration needs a stationary upright gauge");
         }
     } else if (code == LV_EVENT_CLICKED && !orientation_long_press_handled) {
-        device_orientation_next_manual();
+        const unsigned deg = static_cast<unsigned>(
+            device_orientation_next_manual() * 90);
+        char label[32];
+        std::snprintf(label, sizeof(label), "ROTATION LOCK %u", deg);
+        orientation_feedback(label);
     }
 }
 

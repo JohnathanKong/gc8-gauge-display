@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <atomic>
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/portmacro.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -655,11 +656,101 @@ void gc8_ble_garage_button_pressed() {
     }
 }
 
+namespace {
+// Best-effort diagnostic, not an assistant launch. If Companion's custom
+// GATT subscription is active, log what the Waveshare physically detected.
+// Every diagnostic fits the 20-byte default ATT payload and doesn't require
+// a Companion connection for the HID key itself.
+void notify_voice_diagnostic(const char *kind) {
+    if (!garage_subscribed.load() || garage_event_value_handle == 0) return;
+    char diagnostic[20] = {};
+    const int length = std::snprintf(diagnostic, sizeof(diagnostic),
+                                     "GC8|1|VOICE|%s", kind);
+    if (length < 1 || length >= static_cast<int>(sizeof(diagnostic))) return;
+    auto *data = ble_hs_mbuf_from_flat(diagnostic, length);
+    if (data) {
+        int rc = ble_gatts_notify_custom(garage_connection_handle.load(),
+                                         garage_event_value_handle, data);
+        if (rc != 0) ESP_LOGW(TAG, "Voice diagnostic notify failed=%d", rc);
+    }
+}
+
+// Android may treat a long media hold as a headset voice request. This is
+// experimental and independent of the original Voice Command report ID 1.
+// Always send a release, and run separately to keep garage polling alive.
+constexpr uint32_t kHeadsetHoldMs = 950;
+void media_hold_task(void *) {
+    const uint16_t conn = hid_media_connection_handle.load();
+    ble_gap_conn_desc desc = {};
+    bool sent_down = false;
+    if (!hid_media_subscribed.load() || hid_media_report_value_handle == 0 ||
+        ble_gap_conn_find(conn, &desc) != 0 ||
+        !desc.sec_state.encrypted || !desc.sec_state.bonded) {
+        show_garage_banner("MEDIA KEY NOT PAIRED");
+        ESP_LOGW(TAG, "HID media report not bonded/encrypted/subscribed");
+        notify_voice_diagnostic("UNSUB");
+    } else {
+        const uint8_t down_value = 1;
+        auto *down = ble_hs_mbuf_from_flat(&down_value, 1);
+        if (down) {
+            const int rc = ble_gatts_notify_custom(conn, hid_media_report_value_handle, down);
+            if (rc == 0) {
+                sent_down = true;
+                hid_media_current_report = 1;
+                ESP_LOGI(TAG, "HID media down accepted, holding %u ms",
+                         static_cast<unsigned>(kHeadsetHoldMs));
+                vTaskDelay(pdMS_TO_TICKS(kHeadsetHoldMs));
+            } else {
+                ESP_LOGW(TAG, "HID media down failed rc=%d", rc);
+            }
+        }
+        if (sent_down) {
+            const uint8_t up_value = 0;
+            auto *up = ble_hs_mbuf_from_flat(&up_value, 1);
+            if (up) {
+                const int rc = ble_gatts_notify_custom(conn, hid_media_report_value_handle, up);
+                if (rc == 0) {
+                    show_garage_banner("HEADSET KEY SENT");
+                    notify_voice_diagnostic("MEDIA");
+                    ESP_LOGI(TAG, "HID media long press/release submitted");
+                } else {
+                    show_garage_banner("MEDIA BLE ERROR");
+                    notify_voice_diagnostic("FAIL");
+                    ESP_LOGW(TAG, "HID media release failed rc=%d", rc);
+                }
+            } else {
+                show_garage_banner("MEDIA BLE ERROR");
+                notify_voice_diagnostic("FAIL");
+            }
+        } else {
+            show_garage_banner("MEDIA BLE ERROR");
+            notify_voice_diagnostic("FAIL");
+        }
+    }
+    hid_media_current_report = 0;
+    media_key_busy.store(false);
+    vTaskDelete(nullptr);
+}
+} // namespace
+
+void gc8_ble_media_button_pressed() {
+    notify_voice_diagnostic("HOLD");
+    if (media_key_busy.exchange(true)) return;
+    if (xTaskCreate(media_hold_task, "hid_media_hold", 4096,
+                    nullptr, 3, nullptr) != pdPASS) {
+        media_key_busy.store(false);
+        show_garage_banner("MEDIA BLE ERROR");
+        ESP_LOGE(TAG, "Unable to start HID headset hold");
+    }
+}
+
 void gc8_ble_app_button_pressed() {
+    notify_voice_diagnostic("TAP");
     // Bottom BOOT emits a real HID key; the Android GC8 app need not be open.
     if (!hid_subscribed.load() || hid_report_value_handle == 0) {
         show_garage_banner("PAIR VOICE REMOTE");
         ESP_LOGW(TAG, "HID not subscribed; pair GC8 Display in phone Bluetooth settings");
+        notify_voice_diagnostic("UNSUB");
         return;
     }
     const uint16_t conn = hid_connection_handle.load();
@@ -668,6 +759,7 @@ void gc8_ble_app_button_pressed() {
         !desc.sec_state.encrypted || !desc.sec_state.bonded) {
         show_garage_banner("PAIR VOICE REMOTE");
         ESP_LOGW(TAG, "HID connection is not bonded and encrypted");
+        notify_voice_diagnostic("UNSUB");
         return;
     }
     // Press and release the standard Consumer Control Voice Command usage
@@ -682,9 +774,11 @@ void gc8_ble_app_button_pressed() {
     int rc = ble_gatts_notify_custom(conn, hid_report_value_handle, down);
     if (rc != 0) {
         show_garage_banner("VOICE BLE ERROR");
+        notify_voice_diagnostic("FAIL");
         ESP_LOGW(TAG, "HID key-down send failed: %d", rc);
         return;
     }
+    hid_current_report = pressed;
     vTaskDelay(pdMS_TO_TICKS(90));
     auto *up = ble_hs_mbuf_from_flat(&released, 1);
     if (!up) {
@@ -695,9 +789,11 @@ void gc8_ble_app_button_pressed() {
     if (rc == 0) {
         hid_current_report = 0;
         show_garage_banner("VOICE KEY SENT");
+        notify_voice_diagnostic("SENT");
         ESP_LOGI(TAG, "Consumer HID Voice Command press/release sent");
     } else {
         show_garage_banner("VOICE BLE ERROR");
+        notify_voice_diagnostic("FAIL");
         ESP_LOGW(TAG, "HID key-up send failed: %d", rc);
     }
 }

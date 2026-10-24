@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "esp_err.h"
@@ -29,10 +30,37 @@ uint8_t own_addr_type = BLE_OWN_ADDR_PUBLIC;
 portMUX_TYPE snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
 Gc8BleSnapshot snapshot = {};
 
+// Only the last few meters of a turn can plausibly become misleading
+// after Maps falls silent. Never expire a distant turn simply because the car
+// is stopped or Samsung throttles its navigation notifications.
+bool last_turn_is_near(const char *distance) {
+    char *end = nullptr;
+    const double n = std::strtod(distance, &end);
+    if (end == distance || n < 0) return false;
+    while (*end == ' ') ++end;
+    double meters = n;
+    if (std::strcmp(end, "m") == 0) {}
+    else if (std::strcmp(end, "km") == 0) meters *= 1000.0;
+    else if (std::strcmp(end, "ft") == 0) meters *= 0.3048;
+    else if (std::strcmp(end, "mi") == 0) meters *= 1609.344;
+    else return false;
+    return meters <= 50.0;
+}
+
 Gc8BleSnapshot copy_snapshot() {
     portENTER_CRITICAL(&snapshot_lock);
     Gc8BleSnapshot result = snapshot;
     portEXIT_CRITICAL(&snapshot_lock);
+    // A final 10m arrow must not remain displayed for minutes when Maps
+    // never explicitly reports arrival. Keep the route active, but retire
+    // the arrow after 20s without ANY new valid turn packet. A new turn
+    // immediately restores the navigation UI. This is NOT an arrival claim.
+    if (result.has_navigation && result.last_guidance_us > 0 &&
+        last_turn_is_near(result.distance) &&
+        esp_timer_get_time() - result.last_guidance_us >= 20000000LL) {
+        result.has_navigation = false;
+        result.guidance_stale = true;
+    }
     return result;
 }
 void set_connection(bool connected) {
@@ -41,6 +69,8 @@ void set_connection(bool connected) {
     if (!connected) {
         snapshot.has_navigation = false;
         snapshot.route_active = false;
+        snapshot.guidance_stale = false;
+        snapshot.last_guidance_us = 0;
         snapshot.has_demo_afr = false;
         snapshot.destination[0] = '\0';
     }
@@ -93,12 +123,28 @@ bool parse_test_message(char *buffer) {
         return true;
     }
 
+    // Explicit near-destination guidance timeout, not a claim of arrival.
+    // The real route remains active until Maps actually ends its notification.
+    if (std::strcmp(buffer, "GC8|1|HOLD") == 0) {
+        portENTER_CRITICAL(&snapshot_lock);
+        snapshot.has_navigation = false;
+        snapshot.route_active = true;
+        snapshot.guidance_stale = true;
+        snapshot.last_guidance_us = 0;
+        snapshot.maneuver[0] = '\0';
+        snapshot.distance[0] = '\0';
+        snapshot.road[0] = '\0';
+        portEXIT_CRITICAL(&snapshot_lock);
+        return true;
+    }
     // Notification-only mode: show "Getting directions..." immediately
     // after Maps starts navigation, without capturing the destination.
     if (std::strcmp(buffer, "GC8|1|START") == 0) {
         portENTER_CRITICAL(&snapshot_lock);
         snapshot.route_active = true;
         snapshot.has_navigation = false;
+        snapshot.guidance_stale = false;
+        snapshot.last_guidance_us = 0;
         snapshot.has_demo_afr = false;
         snapshot.maneuver[0] = '\0';
         snapshot.distance[0] = '\0';
@@ -111,6 +157,8 @@ bool parse_test_message(char *buffer) {
         portENTER_CRITICAL(&snapshot_lock);
         snapshot.has_navigation = false;
         snapshot.route_active = false;
+        snapshot.guidance_stale = false;
+        snapshot.last_guidance_us = 0;
         snapshot.has_demo_afr = false;
         snapshot.maneuver[0] = '\0';
         snapshot.distance[0] = '\0';
@@ -134,6 +182,8 @@ bool parse_test_message(char *buffer) {
         std::snprintf(snapshot.destination, sizeof(snapshot.destination), "%s", place);
         snapshot.route_active = true;
         snapshot.has_navigation = false;
+        snapshot.guidance_stale = false;
+        snapshot.last_guidance_us = 0;
         snapshot.has_demo_afr = false;
         snapshot.maneuver[0] = '\0';
         snapshot.distance[0] = '\0';
@@ -190,6 +240,8 @@ bool parse_test_message(char *buffer) {
     std::snprintf(snapshot.demo_afr, sizeof(snapshot.demo_afr), "%s", demo_afr ? demo_afr + 5 : "");
     snapshot.has_navigation = true;
     snapshot.route_active = true;
+    snapshot.guidance_stale = false;
+    snapshot.last_guidance_us = esp_timer_get_time();
     portEXIT_CRITICAL(&snapshot_lock);
     return true;
 }

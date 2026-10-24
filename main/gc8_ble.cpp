@@ -35,9 +35,8 @@ static const ble_uuid128_t write_uuid = BLE_UUID128_INIT(
 static const ble_uuid128_t garage_event_uuid = BLE_UUID128_INIT(
     0x03, 0x00, 0x00, 0x75, 0x0b, 0x4a, 0xf0, 0xa4,
     0x67, 0x4b, 0x8f, 0x6b, 0x40, 0x1c, 0xe3, 0xa8);
-// Standard HID-over-GATT (0x1812). Android handles this input even when
-// GC8 Companion isn't visible. Its System Control Power usage is the closest
-// standard external HID equivalent of the Fold's physical Side key.
+// Standard HID-over-GATT Consumer Control (0x1812). Android handles this
+// input itself, even when GC8 Companion is not the foreground Activity.
 static const ble_uuid16_t hid_service_uuid = BLE_UUID16_INIT(0x1812);
 // HID-over-GATT hosts also discover the Device Information PnP ID.
 static const ble_uuid16_t device_info_uuid = BLE_UUID16_INIT(0x180A);
@@ -49,25 +48,23 @@ static const ble_uuid16_t hid_report_uuid = BLE_UUID16_INIT(0x2A4D);
 static const ble_uuid16_t hid_protocol_uuid = BLE_UUID16_INIT(0x2A4E);
 static const ble_uuid16_t hid_report_ref_uuid = BLE_UUID16_INIT(0x2908);
 
-// Report 1, Generic Desktop System Control / System Power Down (0x01:0x81).
-// AOSP maps this HID usage to KEYCODE_POWER, unlike Consumer Voice Command
-// (0x0C:0xCF) which Android can block behind the lock screen.
-// GATT input value is one byte (bit 0), 1=down and 0=up.
-// The Android/One UI Side-key long-press behaviour is device-dependent.
+// Report ID 1, one Consumer Control bit: Usage 0x0CF (Voice Command).
+// The GATT Report value is 0x01 while pressed, 0x00 on release; Report ID
+// lives in the Report Reference descriptor, not in the GATT value bytes.
 constexpr uint8_t hid_report_map[] = {
-    0x05, 0x01,  // Usage Page: Generic Desktop
-    0x09, 0x80,  // Usage: System Control
-    0xA1, 0x01,  // Collection: Application
-    0x85, 0x01,  // Report ID 1 (in Report Reference descriptor)
-    0x09, 0x81,  // Usage: System Power Down -> Android KEYCODE_POWER
+    0x05, 0x0C,  // Usage Page (Consumer)
+    0x09, 0x01,  // Usage (Consumer Control)
+    0xA1, 0x01,  // Collection (Application)
+    0x85, 0x01,  // Report ID 1
+    0x09, 0xCF,  // Usage (Voice Command)
     0x15, 0x00,  // Logical Min 0
     0x25, 0x01,  // Logical Max 1
-    0x75, 0x01,  // Report Size 1 bit
+    0x75, 0x01,  // Report Size 1
     0x95, 0x01,  // Report Count 1
-    0x81, 0x02,  // Input: data, variable, absolute
-    0x75, 0x07,  // 7-bit constant padding
+    0x81, 0x02,  // Input: variable, absolute
+    0x75, 0x07,  // 7 padding bits
     0x95, 0x01,
-    0x81, 0x03,
+    0x81, 0x03,  // Input: constant padding
     0xC0         // End Collection
 };
 constexpr uint8_t hid_info[] = {0x11, 0x01, 0x00, 0x02}; // HID 1.11, normally connectable
@@ -75,8 +72,6 @@ constexpr uint8_t hid_report_reference[] = {0x01, 0x01}; // ID 1, input report
 // USB-IF vendor Espressif 0x303A (ESP32-S3 silicon), product 0x0001,
 // firmware rev 0x0100. Describes the private GC8 HID function, not a USB port.
 constexpr uint8_t hid_pnp_id[] = {0x02, 0x3A, 0x30, 0x01, 0x00, 0x00, 0x01};
-// Keep PWR garage polling responsive while the HID Side-key press is held.
-std::atomic<bool> side_key_in_flight{false};
 std::atomic<bool> hid_subscribed{false};
 std::atomic<uint16_t> hid_connection_handle{0};
 uint16_t hid_report_value_handle = 0;
@@ -567,74 +562,50 @@ void gc8_ble_garage_button_pressed() {
     }
 }
 
-namespace {
-// Long enough to trigger the configured Side-key assistant gesture on most
-// Android phones, but below typical very-long-press power-menu timeouts.
-// A BLE power key is not privileged hardware; Samsung may ignore or handle it
-// differently. The report must ALWAYS be released, even on BLE send failure.
-constexpr uint32_t kSideHoldMs = 900;
-
-void send_side_key(void *) {
-    const uint16_t conn = hid_connection_handle.load();
-    const uint8_t pressed = 1;
-    const uint8_t released = 0;
-    bool down_sent = false;
-
-    ble_gap_conn_desc desc = {};
-    if (!hid_subscribed.load() || hid_report_value_handle == 0 ||
-        ble_gap_conn_find(conn, &desc) != 0 ||
-        !desc.sec_state.encrypted || !desc.sec_state.bonded) {
-        show_garage_banner("PAIR VOICE REMOTE");
-        ESP_LOGW(TAG, "HID power key needs an encrypted, bonded subscription");
-    } else {
-        auto *down = ble_hs_mbuf_from_flat(&pressed, 1);
-        if (down) {
-            int rc = ble_gatts_notify_custom(conn, hid_report_value_handle, down);
-            if (rc == 0) {
-                down_sent = true;
-                hid_current_report = pressed;
-                vTaskDelay(pdMS_TO_TICKS(kSideHoldMs));
-            } else {
-                ESP_LOGW(TAG, "HID Side-key down failed: %d", rc);
-            }
-        }
-        // Release even if the host disconnected during the hold, if possible.
-        if (down_sent) {
-            auto *up = ble_hs_mbuf_from_flat(&released, 1);
-            if (up) {
-                const int rc = ble_gatts_notify_custom(conn, hid_report_value_handle, up);
-                if (rc == 0) {
-                    show_garage_banner("SIDE KEY SENT");
-                    ESP_LOGI(TAG, "HID KEYCODE_POWER long press delivered to BLE stack");
-                } else {
-                    show_garage_banner("SIDE KEY ERROR");
-                    ESP_LOGW(TAG, "HID Side-key release failed: %d", rc);
-                }
-            } else {
-                show_garage_banner("SIDE KEY ERROR");
-            }
-        } else {
-            show_garage_banner("SIDE KEY ERROR");
-        }
-    }
-    hid_current_report = released;
-    side_key_in_flight.store(false);
-    vTaskDelete(nullptr);
-}
-}  // namespace
-
 void gc8_ble_app_button_pressed() {
-    // Lower BOOT simulates the phone's power/Side key long press via BLE HID.
-    // Upper PWR's garage action and the existing BLE GATT service are separate.
+    // Bottom BOOT emits a real HID key; the Android GC8 app need not be open.
     if (!hid_subscribed.load() || hid_report_value_handle == 0) {
         show_garage_banner("PAIR VOICE REMOTE");
+        ESP_LOGW(TAG, "HID not subscribed; pair GC8 Display in phone Bluetooth settings");
         return;
     }
-    if (side_key_in_flight.exchange(true)) return; // One keypress at a time.
-    if (xTaskCreate(send_side_key, "hid_side_key", 4096, nullptr, 3, nullptr) != pdPASS) {
-        side_key_in_flight.store(false);
-        show_garage_banner("SIDE KEY ERROR");
-        ESP_LOGE(TAG, "Unable to allocate HID Side-key worker task");
+    const uint16_t conn = hid_connection_handle.load();
+    ble_gap_conn_desc desc = {};
+    if (ble_gap_conn_find(conn, &desc) != 0 ||
+        !desc.sec_state.encrypted || !desc.sec_state.bonded) {
+        show_garage_banner("PAIR VOICE REMOTE");
+        ESP_LOGW(TAG, "HID connection is not bonded and encrypted");
+        return;
+    }
+    // Press and release the standard Consumer Control Voice Command usage
+    // (0x0CF). The OS maps the HID report to KEYCODE_VOICE_ASSIST.
+    const uint8_t pressed = 1;
+    const uint8_t released = 0;
+    auto *down = ble_hs_mbuf_from_flat(&pressed, 1);
+    if (!down) {
+        show_garage_banner("VOICE BLE ERROR");
+        return;
+    }
+    int rc = ble_gatts_notify_custom(conn, hid_report_value_handle, down);
+    if (rc != 0) {
+        show_garage_banner("VOICE BLE ERROR");
+        ESP_LOGW(TAG, "HID key-down send failed: %d", rc);
+        return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(90));
+    auto *up = ble_hs_mbuf_from_flat(&released, 1);
+    if (!up) {
+        show_garage_banner("VOICE BLE ERROR");
+        return;
+    }
+    rc = ble_gatts_notify_custom(conn, hid_report_value_handle, up);
+    if (rc == 0) {
+        hid_current_report = 0;
+        show_garage_banner("VOICE KEY SENT");
+        ESP_LOGI(TAG, "Consumer HID Voice Command press/release sent");
+    } else {
+        show_garage_banner("VOICE BLE ERROR");
+        ESP_LOGW(TAG, "HID key-up send failed: %d", rc);
     }
 }
 

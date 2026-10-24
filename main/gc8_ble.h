@@ -17,8 +17,6 @@ struct Gc8BleSnapshot {
     // Device time comes from the phone. ESP32 extrapolates while disconnected
     // using its monotonic timer, and re-syncs on BLE reconnect/each minute.
     bool has_clock;
-    bool has_phone_battery;
-    uint8_t phone_battery_percent;
     bool clock_24h;
     int32_t clock_seconds; // Seconds after midnight in phone's local timezone
     int64_t clock_synced_us; // esp_timer_get_time() when packet was received

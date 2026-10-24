@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <atomic>
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "esp_err.h"
@@ -26,9 +27,23 @@ static const ble_uuid128_t service_uuid = BLE_UUID128_INIT(
 static const ble_uuid128_t write_uuid = BLE_UUID128_INIT(
     0x02, 0x00, 0x00, 0x75, 0x0b, 0x4a, 0xf0, 0xa4,
     0x67, 0x4b, 0x8f, 0x6b, 0x40, 0x1c, 0xe3, 0xa8);
+static const ble_uuid128_t garage_event_uuid = BLE_UUID128_INIT(
+    0x03, 0x00, 0x00, 0x75, 0x0b, 0x4a, 0xf0, 0xa4,
+    0x67, 0x4b, 0x8f, 0x6b, 0x40, 0x1c, 0xe3, 0xa8);
+std::atomic<bool> garage_subscribed{false};
+std::atomic<uint16_t> garage_connection_handle{0};
+uint16_t garage_event_value_handle = 0;
 uint8_t own_addr_type = BLE_OWN_ADDR_PUBLIC;
 portMUX_TYPE snapshot_lock = portMUX_INITIALIZER_UNLOCKED;
 Gc8BleSnapshot snapshot = {};
+
+void show_garage_banner(const char *message) {
+    portENTER_CRITICAL(&snapshot_lock);
+    std::snprintf(snapshot.garage_banner, sizeof(snapshot.garage_banner),
+                  "%s", message);
+    snapshot.garage_banner_until_us = esp_timer_get_time() + 3500000LL;
+    portEXIT_CRITICAL(&snapshot_lock);
+}
 
 // Only the last few meters of a turn can plausibly become misleading
 // after Maps falls silent. Never expire a distant turn simply because the car
@@ -84,6 +99,18 @@ bool valid_ascii(const char *value) {
     return true;
 }
 bool parse_test_message(char *buffer) {
+    // A phone reply is a statement about request submission, never proof that
+    // the garage door physically moved. The vendor integration is disabled
+    // until explicitly configured by the owner.
+    constexpr char kGarageResult[] = "GC8|1|GARAGE|RESULT|";
+    if (std::strncmp(buffer, kGarageResult, sizeof(kGarageResult)-1) == 0) {
+        const char *result = buffer + sizeof(kGarageResult)-1;
+        if (std::strcmp(result, "NOT_READY") == 0) show_garage_banner("GARAGE NOT SET UP");
+        else if (std::strcmp(result, "SENT") == 0) show_garage_banner("GARAGE CMD SENT");
+        else if (std::strcmp(result, "FAILED") == 0) show_garage_banner("GARAGE CMD FAILED");
+        else return false;
+        return true;
+    }
     // Phone-local clock sync; no ESP32 Wi-Fi, GPS or RTC required.
     // GC8|1|TIME|HH:MM:SS|12 (or |24). Re-sync from Android every minute
     // to follow user clock preferences, daylight saving and timezone changes.
@@ -260,12 +287,17 @@ int on_write(uint16_t, uint16_t, struct ble_gatt_access_ctxt *ctx, void *) {
 }
 
 // Zero-initialize NimBLE C structs; C++ -Wmissing-field-initializers is an error.
-ble_gatt_chr_def characteristics[2] = {};
+ble_gatt_chr_def characteristics[3] = {};
 ble_gatt_svc_def services[2] = {};
 void configure_gatt() {
     characteristics[0].uuid = &write_uuid.u;
     characteristics[0].access_cb = on_write;
     characteristics[0].flags = BLE_GATT_CHR_F_WRITE;
+    // Add a separate notify-only characteristic; existing WRITE_UUID and
+    // its navigation/clock protocol remain unchanged and backwards-compatible.
+    characteristics[1].uuid = &garage_event_uuid.u;
+    characteristics[1].flags = BLE_GATT_CHR_F_NOTIFY;
+    characteristics[1].val_handle = &garage_event_value_handle;
     services[0].type = BLE_GATT_SVC_TYPE_PRIMARY;
     services[0].uuid = &service_uuid.u;
     services[0].characteristics = characteristics;
@@ -276,13 +308,24 @@ int gap_event(ble_gap_event *event, void *) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             ESP_LOGI(TAG, "BLE connect status=%d", event->connect.status);
-            if (event->connect.status == 0) set_connection(true);
-            else advertise();
+            garage_subscribed.store(false);
+            if (event->connect.status == 0) {
+                garage_connection_handle.store(event->connect.conn_handle);
+                set_connection(true);
+            } else advertise();
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(TAG, "BLE disconnected");
+            garage_subscribed.store(false);
             set_connection(false);
             advertise();
+            return 0;
+        case BLE_GAP_EVENT_SUBSCRIBE:
+            if (event->subscribe.attr_handle == garage_event_value_handle) {
+                garage_subscribed.store(event->subscribe.cur_notify != 0);
+                ESP_LOGI(TAG, "Garage PWR event notify subscribed=%d",
+                         static_cast<int>(garage_subscribed.load()));
+            }
             return 0;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             advertise();
@@ -325,6 +368,32 @@ void host_task(void *) {
     nimble_port_freertos_deinit();
 }
 }  // namespace
+
+void gc8_ble_garage_button_pressed() {
+    if (!garage_subscribed.load() || !gc8_ble_snapshot().connected ||
+        garage_event_value_handle == 0) {
+        show_garage_banner("GARAGE: PHONE OFFLINE");
+        ESP_LOGW(TAG, "PWR pressed but Companion is not subscribed");
+        return;
+    }
+    // A short 18-byte signal fits the minimum BLE MTU. It is an event ONLY:
+    // Meross credentials and garage door control never live on the ESP32.
+    constexpr char request[] = "GC8|1|GARAGE|PRESS";
+    auto *packet = ble_hs_mbuf_from_flat(request, sizeof(request) - 1);
+    if (!packet) {
+        show_garage_banner("GARAGE: BLE ERROR");
+        return;
+    }
+    const int rc = ble_gatts_notify_custom(
+        garage_connection_handle.load(), garage_event_value_handle, packet);
+    if (rc == 0) {
+        show_garage_banner("GARAGE REQUESTED");
+        ESP_LOGI(TAG, "Garage button event delivered to BLE stack");
+    } else {
+        show_garage_banner("GARAGE: BLE ERROR");
+        ESP_LOGW(TAG, "Garage BLE notification failed: %d", rc);
+    }
+}
 
 void gc8_ble_start() {
     esp_err_t err = nvs_flash_init();

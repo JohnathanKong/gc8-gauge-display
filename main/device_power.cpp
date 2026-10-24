@@ -35,7 +35,9 @@ std::atomic<bool> cached_vbus_good{false};
 std::atomic<bool> cached_battery_present{false};
 std::atomic<uint8_t> normal_brightness{75};
 std::atomic<uint16_t> idle_dim_seconds{300};
-std::atomic<int64_t> last_interaction_us{0};
+// 32-bit monotonic milliseconds are native atomics on ESP32-S3; subtraction
+// remains wrap-safe across the 49-day uptime rollover.
+std::atomic<uint32_t> last_interaction_ms{0};
 
 bool read_axp_register(uint8_t reg, uint8_t &value) {
     return pmic &&
@@ -153,7 +155,7 @@ void monitor_task(void *) {
 
 void device_power_start() {
     read_settings(); // Caller initializes NVS before entering here.
-    last_interaction_us.store(esp_timer_get_time());
+    last_interaction_ms.store(static_cast<uint32_t>(esp_timer_get_time() / 1000));
     if (xTaskCreate(monitor_task, "device_battery", 3072, nullptr, 3, nullptr) != pdPASS)
         ESP_LOGW(TAG, "Power monitor unavailable; brightness preference remains");
 }
@@ -167,15 +169,16 @@ DevicePowerSnapshot device_power_snapshot() {
 }
 
 void device_power_note_activity() {
-    last_interaction_us.store(esp_timer_get_time());
+    last_interaction_ms.store(static_cast<uint32_t>(esp_timer_get_time() / 1000));
 }
 
 uint8_t device_power_target_brightness(bool route_active, bool diagnostics_open) {
     const uint8_t bright = normal_brightness.load();
     const uint16_t idle = idle_dim_seconds.load();
     if (route_active || diagnostics_open || idle == 0) return bright;
-    const int64_t elapsed = esp_timer_get_time() - last_interaction_us.load();
-    if (elapsed >= static_cast<int64_t>(idle) * 1000000LL) {
+    const uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+    const uint32_t elapsed_ms = now_ms - last_interaction_ms.load();
+    if (elapsed_ms >= static_cast<uint32_t>(idle) * 1000U) {
         // Real panel dimming, NOT ESP32 deep sleep; BLE/navigation/garage stay up.
         return 25;
     }

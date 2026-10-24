@@ -16,6 +16,9 @@ REM Automatically migrate only the LVGL fonts required by the new screen.
 echo Checking larger LVGL fonts in local sdkconfig...
 python tools\ensure_lvgl_fonts.py
 if errorlevel 1 exit /b 1
+REM Pairing keys must persist, including builds using an existing sdkconfig.
+python tools\ensure_nimble_hid.py
+if errorlevel 1 exit /b 1
 REM Reconfigure even on an incremental build so regenerated LVGL configuration
 REM sees the updated sdkconfig before C++ compilation begins.
 call idf.py reconfigure

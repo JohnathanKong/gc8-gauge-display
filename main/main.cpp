@@ -199,7 +199,7 @@ void draw_home() {
     // segmented rim gauge, fine dividers, then white text and blue arrow.
     cockpit_art::rasterize();
     add_rim(screen, 5, 0x49667B, LV_OPA_70);
-    add_rim(screen, 11, 0x1D3856, LV_OPA_55);
+    add_rim(screen, 11, 0x1D3856, LV_OPA_50);
     if (cockpit_art::road.data) {
         add_sprite(screen, &cockpit_art::road,
                    cockpit_art::road_x, cockpit_art::road_y, kBlue,
@@ -213,9 +213,9 @@ void draw_home() {
 
     // All reference separators are intentional: upper-left and upper-right
     // rule fragments, vertical arrow/street separator, and AFR horizon line.
-    add_rule(screen, 48, 79, 93, 1, 0x2A5474, LV_OPA_65);
-    add_rule(screen, 309, 79, 31, 1, 0x2A5474, LV_OPA_65);
-    add_rule(screen, 194, 120, 2, 140, kBlue, LV_OPA_55);
+    add_rule(screen, 48, 79, 93, 1, 0x2A5474, LV_OPA_60);
+    add_rule(screen, 309, 79, 31, 1, 0x2A5474, LV_OPA_60);
+    add_rule(screen, 194, 120, 2, 140, kBlue, LV_OPA_50);
     add_rule(screen, 42, 310, 382, 2, kBlue, LV_OPA_80);
 
     // Phone-clock, not an invented ESP32 date: "--:--" until first sync.

@@ -23,6 +23,8 @@ constexpr int64_t kMaxPressUs = 1200000;     // Long press: AXP2101 power-off.
 constexpr int64_t kCooldownUs = 6000000;     // Protect against duplicate actions.
 constexpr int kSampleMs = 35;
 constexpr int64_t kBootCooldownUs = 1500000;
+constexpr int64_t kBootLongPressUs = 850000;
+constexpr int64_t kBootMaxPressUs = 4500000;
 
 void poll_task(void *) {
     gpio_config_t config = {};
@@ -102,11 +104,16 @@ void poll_task(void *) {
                 else if (boot_pressed_at != 0) {
                     const int64_t duration = now - boot_pressed_at;
                     boot_pressed_at = 0;
-                    if (duration >= kMinPressUs && duration <= kMaxPressUs &&
+                    if (duration >= kMinPressUs && duration <= kBootMaxPressUs &&
                         now - boot_last_at >= kBootCooldownUs) {
                         boot_last_at = now;
-                        ESP_LOGI(TAG, "Lower BOOT pressed; sending Android HID voice key");
-                        gc8_ble_app_button_pressed();
+                        if (duration >= kBootLongPressUs) {
+                            ESP_LOGI(TAG, "Lower BOOT held; trying HID headset media hold");
+                            gc8_ble_media_button_pressed();
+                        } else {
+                            ESP_LOGI(TAG, "Lower BOOT tapped; sending HID Voice Command");
+                            gc8_ble_app_button_pressed();
+                        }
                     }
                 }
             }

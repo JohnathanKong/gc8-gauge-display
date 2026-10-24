@@ -211,10 +211,11 @@ void update_diagnostics(int64_t now_us) {
         lv_label_set_text(diagnostic_values[4], "NONE");
     }
     const uint32_t seconds = static_cast<uint32_t>(now_us / 1000000);
-    std::snprintf(line, sizeof(line), "%02lu:%02lu:%02lu",
+    std::snprintf(line, sizeof(line), "%02lu:%02lu:%02lu  %luKB",
         static_cast<unsigned long>(seconds / 3600),
         static_cast<unsigned long>((seconds / 60) % 60),
-        static_cast<unsigned long>(seconds % 60));
+        static_cast<unsigned long>(seconds % 60),
+        static_cast<unsigned long>(esp_get_free_internal_heap_size() / 1024));
     lv_label_set_text(diagnostic_values[5], line);
     std::snprintf(line, sizeof(line), "%s  (#%lu)",
         reset_reason_text(boot_reason), static_cast<unsigned long>(boot_count));
@@ -700,7 +701,7 @@ void draw_home() {
     add_rule(diagnostic_panel, 21, 49, 378, 1, kRule, LV_OPA_80);
     const char *names[12] = {
         "COMPANION", "VOICE HID", "MEDIA HID", "BLE LINKS",
-        "LAST DROP", "UPTIME", "RESET", "POWER SOURCE",
+        "LAST DROP", "UPTIME / RAM", "RESET", "POWER SOURCE",
         "BATTERY", "ORIENTATION", "BRIGHTNESS", "IDLE DIM"
     };
     for (int i = 0; i < 12; ++i) {

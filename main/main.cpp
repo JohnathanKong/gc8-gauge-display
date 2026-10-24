@@ -521,13 +521,13 @@ extern "C" void app_main(void) {
     // No heavy atan2/exp loop runs inside the UI refresh/render critical path.
     cockpit_art::rasterize();
     bsp_display_start();
-    // The IMU shares the same BSP-managed I2C bus as the AXP2101 battery.
-    // Its independent task never calls LVGL or touches the BLE/GATT stack.
-    device_orientation_start();
     bsp_display_lock(-1);
     draw_home();
     bsp_display_unlock();
-    device_power_start(); // Sample genuine battery on BSP's shared I2C bus.
+    // BLE initialization also initializes NVS; orientation preferences must
+    // load only AFTER NVS is ready. The IMU shares BSP I2C with the PMIC.
     gc8_ble_start();
+    device_orientation_start();
+    device_power_start(); // Sample genuine battery on BSP's shared I2C bus.
     garage_button_start(); // Upper PWR=garage; short lower BOOT=HID voice (GPIO0 stays flash strap).
 }

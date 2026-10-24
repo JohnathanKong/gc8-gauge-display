@@ -157,7 +157,7 @@ void draw_home() {
     add_rule(screen, 87, 307, 292);
     // Wider, unlit AEM-inspired 30-segment AFR sweep, not a live measurement.
     // The handle is retained for future sensor-driven segment colouring.
-    afr_sweep_sprite = add_sprite(screen, &cockpit_art::afr_sweep, 53, 321, kBlue);
+    afr_sweep_sprite = add_sprite(screen, &cockpit_art::afr_sweep, 45, 321, kBlue);
 
     // Android synchronizes the phone-local time over BLE. Show "--:--"
     // rather than fake a clock until the first successful synchronization.

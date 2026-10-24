@@ -1,0 +1,37 @@
+name: GC8 ESP-IDF Firmware Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'main/**'
+      - 'CMakeLists.txt'
+      - 'sdkconfig.defaults'
+      - 'partitions.csv'
+      - '.github/workflows/firmware-build.yml'
+  pull_request:
+    paths:
+      - 'main/**'
+      - 'CMakeLists.txt'
+      - 'sdkconfig.defaults'
+      - 'partitions.csv'
+      - '.github/workflows/firmware-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-esp32s3:
+    name: Compile GC8 on ESP-IDF v6.1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout GC8 firmware
+        uses: actions/checkout@v4
+      - name: Compile firmware for Waveshare ESP32-S3
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32s3
+          path: .

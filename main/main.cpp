@@ -737,6 +737,7 @@ extern "C" void app_main(void) {
     // BLE initialization also initializes NVS; orientation preferences must
     // load only AFTER NVS is ready. The IMU shares BSP I2C with the PMIC.
     gc8_ble_start();
+    count_device_boot(); // Once per reboot, after NimBLE has initialized NVS.
     device_orientation_start();
     device_power_start(); // Sample genuine battery on BSP's shared I2C bus.
     garage_button_start(); // Upper PWR=garage; short lower BOOT=HID voice (GPIO0 stays flash strap).

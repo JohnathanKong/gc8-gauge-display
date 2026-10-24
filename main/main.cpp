@@ -186,8 +186,14 @@ void update_diagnostics(int64_t now_us) {
     const auto power = device_power_snapshot();
     char line[64];
     lv_label_set_text(diagnostic_values[0], ble.gatt_subscribed ? "CONNECTED" : "WAITING");
-    lv_label_set_text(diagnostic_values[1], ble.voice_hid_subscribed ? "SUBSCRIBED" : "NO HOST");
-    lv_label_set_text(diagnostic_values[2], ble.media_hid_subscribed ? "SUBSCRIBED" : "NO HOST");
+    std::snprintf(line, sizeof(line), "%s (%lu sent)",
+        ble.voice_hid_subscribed ? "READY" : "NO HOST",
+        static_cast<unsigned long>(ble.voice_reports_submitted));
+    lv_label_set_text(diagnostic_values[1], line);
+    std::snprintf(line, sizeof(line), "%s (%lu sent)",
+        ble.media_hid_subscribed ? "READY" : "NO HOST",
+        static_cast<unsigned long>(ble.media_reports_submitted));
+    lv_label_set_text(diagnostic_values[2], line);
     std::snprintf(line, sizeof(line), "%u  total:%lu",
         static_cast<unsigned>(ble.active_connections),
         static_cast<unsigned long>(ble.connections));
@@ -245,8 +251,10 @@ void refresh_navigation(lv_timer_t *) {
     // rotate all artwork, labels and navigation arrows together.
     const uint8_t requested = device_orientation_rotation();
     if (requested != applied_orientation) {
-        const esp_err_t err =
-            bsp_display_rotation_set(static_cast<bsp_display_rotation_t>(requested));
+        const bsp_display_rotation_t selected = requested == 1 ? BSP_DISPLAY_ROTATE_90 :
+            requested == 2 ? BSP_DISPLAY_ROTATE_180 :
+            requested == 3 ? BSP_DISPLAY_ROTATE_270 : BSP_DISPLAY_ROTATE_0;
+        const esp_err_t err = bsp_display_rotation_set(selected);
         if (err == ESP_OK) {
             applied_orientation = requested;
             lv_obj_invalidate(lv_screen_active());

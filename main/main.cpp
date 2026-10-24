@@ -152,17 +152,20 @@ void refresh_navigation(lv_timer_t *) {
         lv_label_set_text(clock_label, time_text);
         std::snprintf(displayed_time, sizeof(displayed_time), "%s", time_text);
     }
-    if (!first_update && std::memcmp(&previous, &current, sizeof(current)) == 0) return;
+    // The PMIC changes independently of BLE packets, so refresh its icon
+    // even when the navigation snapshot hasn't changed in many minutes.
+    const auto power = device_power_snapshot();
+    const int power_percent = power.valid ? static_cast<int>(power.percent) : -1;
+    const bool power_changed = power_percent != last_device_battery ||
+                               power.charging != last_battery_charging;
+    if (!first_update && std::memcmp(&previous, &current, sizeof(current)) == 0 &&
+        !power_changed) return;
     first_update = false;
     previous = current;
 
     lv_label_set_text(connection, current.connected ? "BLE CONNECTED" : "BLE WAITING");
-    // Device battery (AXP2101 PMIC); not phone battery and not guessed from
-    // USB power. The monitor polls in a FreeRTOS task outside LVGL.
-    const auto power = device_power_snapshot();
-    const int power_percent = power.valid ? static_cast<int>(power.percent) : -1;
-    if (power_percent != last_device_battery ||
-        power.charging != last_battery_charging) {
+    // Real AXP2101 fuel-gauge data from the WAVE SHARE DEVICE, not phone.
+    if (power_changed) {
         last_device_battery = power_percent;
         last_battery_charging = power.charging;
         if (power.valid) {

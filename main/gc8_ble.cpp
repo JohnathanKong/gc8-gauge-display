@@ -65,18 +65,40 @@ constexpr uint8_t hid_report_map[] = {
     0x75, 0x07,  // 7 padding bits
     0x95, 0x01,
     0x81, 0x03,  // Input: constant padding
-    0xC0         // End Collection
+    0xC0,        // End Voice Command collection
+    // A separate MEDIA_PLAY_PAUSE report for Android's documented headset
+    // long-press voice-search path. Do not replace the working voice key.
+    0x05, 0x0C,  // Usage Page (Consumer)
+    0x09, 0x01,  // Usage (Consumer Control)
+    0xA1, 0x01,  // Collection (Application)
+    0x85, 0x02,  // Report ID 2; own GATT Report characteristic
+    0x09, 0xCD,  // Usage (Play/Pause)
+    0x15, 0x00,  // Logical Min 0
+    0x25, 0x01,  // Logical Max 1
+    0x75, 0x01,  // Report Size 1
+    0x95, 0x01,  // Report Count 1
+    0x81, 0x02,  // Input: variable, absolute
+    0x75, 0x07,  // 7 padding bits
+    0x95, 0x01,
+    0x81, 0x03,  // Input: constant padding
+    0xC0         // End media collection
 };
 constexpr uint8_t hid_info[] = {0x11, 0x01, 0x00, 0x02}; // HID 1.11, normally connectable
 constexpr uint8_t hid_report_reference[] = {0x01, 0x01}; // ID 1, input report
+constexpr uint8_t hid_media_report_reference[] = {0x02, 0x01}; // ID 2, input report
 // USB-IF vendor Espressif 0x303A (ESP32-S3 silicon), product 0x0001,
 // firmware rev 0x0100. Describes the private GC8 HID function, not a USB port.
 constexpr uint8_t hid_pnp_id[] = {0x02, 0x3A, 0x30, 0x01, 0x00, 0x00, 0x01};
 std::atomic<bool> hid_subscribed{false};
+std::atomic<bool> hid_media_subscribed{false};
+std::atomic<bool> media_key_busy{false};
 std::atomic<uint16_t> hid_connection_handle{0};
 uint16_t hid_report_value_handle = 0;
+uint16_t hid_media_report_value_handle = 0;
+std::atomic<uint16_t> hid_media_connection_handle{0};
 uint8_t hid_protocol_mode = 1;
 uint8_t hid_current_report = 0;
+uint8_t hid_media_current_report = 0;
 std::atomic<bool> garage_subscribed{false};
 std::atomic<uint16_t> garage_connection_handle{0};
 uint16_t garage_event_value_handle = 0;
@@ -404,9 +426,17 @@ int hid_report_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
     if (ctx->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
     return hid_append(ctx, &hid_current_report, sizeof(hid_current_report));
 }
+int hid_media_report_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
+    if (ctx->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    return hid_append(ctx, &hid_media_current_report, sizeof(hid_media_current_report));
+}
 int hid_report_ref_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
     if (ctx->op != BLE_GATT_ACCESS_OP_READ_DSC) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
     return hid_append(ctx, hid_report_reference, sizeof(hid_report_reference));
+}
+int hid_media_report_ref_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
+    if (ctx->op != BLE_GATT_ACCESS_OP_READ_DSC) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    return hid_append(ctx, hid_media_report_reference, sizeof(hid_media_report_reference));
 }
 int hid_protocol_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
     if (ctx->op == BLE_GATT_ACCESS_OP_READ_CHR)
@@ -435,7 +465,8 @@ int hid_pnp_access(uint16_t, uint16_t, ble_gatt_access_ctxt *ctx, void *) {
 }
 ble_gatt_chr_def device_info_characteristics[2] = {};
 ble_gatt_dsc_def hid_report_descriptors[2] = {};
-ble_gatt_chr_def hid_characteristics[6] = {};
+ble_gatt_dsc_def hid_media_report_descriptors[2] = {};
+ble_gatt_chr_def hid_characteristics[7] = {};
 
 // Zero-initialize NimBLE C structs; C++ -Wmissing-field-initializers is an error.
 ble_gatt_chr_def characteristics[3] = {};
@@ -457,6 +488,9 @@ void configure_gatt() {
     hid_report_descriptors[0].uuid = &hid_report_ref_uuid.u;
     hid_report_descriptors[0].att_flags = BLE_ATT_F_READ;
     hid_report_descriptors[0].access_cb = hid_report_ref_access;
+    hid_media_report_descriptors[0].uuid = &hid_report_ref_uuid.u;
+    hid_media_report_descriptors[0].att_flags = BLE_ATT_F_READ;
+    hid_media_report_descriptors[0].access_cb = hid_media_report_ref_access;
 
     // HID Information
     hid_characteristics[0].uuid = &hid_info_uuid.u;
@@ -481,6 +515,13 @@ void configure_gatt() {
     hid_characteristics[4].uuid = &hid_protocol_uuid.u;
     hid_characteristics[4].access_cb = hid_protocol_access;
     hid_characteristics[4].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE_NO_RSP;
+    // Report 2: Play/Pause for the optional headset-style long hold.
+    hid_characteristics[5].uuid = &hid_report_uuid.u;
+    hid_characteristics[5].access_cb = hid_media_report_access;
+    hid_characteristics[5].flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY |
+                                   BLE_GATT_CHR_F_READ_ENC;
+    hid_characteristics[5].descriptors = hid_media_report_descriptors;
+    hid_characteristics[5].val_handle = &hid_media_report_value_handle;
     services[1].type = BLE_GATT_SVC_TYPE_PRIMARY;
     services[1].uuid = &hid_service_uuid.u;
     services[1].characteristics = hid_characteristics;
@@ -512,6 +553,8 @@ int gap_event(ble_gap_event *event, void *) {
             }
             if (event->disconnect.conn.conn_handle == hid_connection_handle.load())
                 hid_subscribed.store(false);
+            if (event->disconnect.conn.conn_handle == hid_media_connection_handle.load())
+                hid_media_subscribed.store(false);
             advertise();
             return 0;
         case BLE_GAP_EVENT_SUBSCRIBE:
@@ -527,6 +570,12 @@ int gap_event(ble_gap_event *event, void *) {
                 hid_connection_handle.store(event->subscribe.conn_handle);
                 ESP_LOGI(TAG, "Android HID voice notify subscribed=%d",
                          static_cast<int>(hid_subscribed.load()));
+            }
+            if (event->subscribe.attr_handle == hid_media_report_value_handle) {
+                hid_media_subscribed.store(event->subscribe.cur_notify != 0);
+                hid_media_connection_handle.store(event->subscribe.conn_handle);
+                ESP_LOGI(TAG, "Android HID media notify subscribed=%d",
+                         static_cast<int>(hid_media_subscribed.load()));
             }
             return 0;
         case BLE_GAP_EVENT_ENC_CHANGE:

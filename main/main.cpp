@@ -446,21 +446,57 @@ void orientation_touch_event(lv_event_t *event) {
     const lv_event_code_t code = lv_event_get_code(event);
     if (code == LV_EVENT_PRESSED) {
         orientation_long_press_handled = false;
+        device_power_note_activity(); // Wake the display even on a long touch.
     } else if (code == LV_EVENT_LONG_PRESSED) {
         orientation_long_press_handled = true;
+        if (diagnostics_visible) return;
         if (device_orientation_calibrate_auto()) {
             orientation_feedback("AUTO ROTATE ON");
             ESP_LOGI(TAG, "AUTO rotation enabled; USB-down set as 0 degrees");
         } else {
             orientation_feedback("HOLD UPRIGHT TO CALIBRATE");
-            ESP_LOGW(TAG, "AUTO calibration needs a stationary upright gauge");
+            ESP_LOGW(TAG, "AUTO calibration needs stationary vertical device");
         }
     } else if (code == LV_EVENT_CLICKED && !orientation_long_press_handled) {
-        const unsigned deg = static_cast<unsigned>(
-            device_orientation_next_manual() * 90);
-        char label[32];
-        std::snprintf(label, sizeof(label), "ROTATION LOCK %u", deg);
-        orientation_feedback(label);
+        lv_indev_t *indev = lv_indev_active();
+        if (!indev) return;
+        lv_point_t point = {};
+        lv_indev_get_point(indev, &point);
+        // CO5300 hardware rotation does not rotate capacitive-touch reports.
+        // Convert panel coordinates back to 466x466 LVGL logical pixels.
+        int x = point.x, y = point.y;
+        switch (applied_orientation) {
+            case 1: x = point.y; y = 465 - point.x; break;
+            case 2: x = 465 - point.x; y = 465 - point.y; break;
+            case 3: x = 465 - point.y; y = point.x; break;
+            default: break;
+        }
+        if (diagnostics_visible) {
+            if (y >= 329 && y < 355) {
+                const unsigned pct = device_power_cycle_brightness();
+                ESP_LOGI(TAG, "Saved brightness=%u%%", pct);
+                diagnostics_refresh_us = 0;
+            } else if (y >= 355 && y < 390) {
+                const unsigned seconds = device_power_cycle_idle_dim();
+                ESP_LOGI(TAG, "Saved idle dim after=%u seconds", seconds);
+                diagnostics_refresh_us = 0;
+            } else {
+                diagnostics_visible = false;
+                lv_obj_add_flag(diagnostic_panel, LV_OBJ_FLAG_HIDDEN);
+            }
+            return;
+        }
+        if (y >= 65 && y < 120 && x >= 100 && x <= 365) {
+            diagnostics_visible = true;
+            diagnostics_refresh_us = 0;
+            lv_obj_remove_flag(diagnostic_panel, LV_OBJ_FLAG_HIDDEN);
+            update_diagnostics(esp_timer_get_time());
+            return;
+        }
+        const unsigned degrees = device_orientation_next_manual() * 90;
+        char message[32];
+        std::snprintf(message, sizeof(message), "ROTATION LOCK %u", degrees);
+        orientation_feedback(message);
     }
 }
 
@@ -470,8 +506,9 @@ void draw_home() {
     // All current dashboard widgets are informational; use the existing
     // capacitive touchscreen without stealing GPIO PWR (garage) or BOOT
     // (voice/media assistant). Tap = rotate/lock, long press = calibrate AUTO.
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(screen, orientation_touch_event, LV_EVENT_ALL, nullptr);
+    // One full-screen transparent input layer is attached below, above all
+    // otherwise informational labels and cockpit artwork. The previous
+    // background-only listener missed touches on foreground objects.
     lv_obj_set_style_bg_color(screen, lv_color_hex(kBlack), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
@@ -632,6 +669,56 @@ void draw_home() {
     garage_toast_text = make_label(garage_toast, "", &lv_font_montserrat_20,
                                   kWhite, 10, 19, 334, LV_TEXT_ALIGN_CENTER);
     lv_obj_add_flag(garage_toast, LV_OBJ_FLAG_HIDDEN);
+
+    // Diagnostics use a dedicated overlay. No pairing/permissions or phone
+    // access is needed; values come directly from the ESP32 and AXP2101.
+    diagnostic_panel = lv_obj_create(screen);
+    lv_obj_set_pos(diagnostic_panel, 22, 16);
+    lv_obj_set_size(diagnostic_panel, 422, 434);
+    lv_obj_set_style_bg_color(diagnostic_panel, lv_color_hex(0x061422), 0);
+    lv_obj_set_style_bg_opa(diagnostic_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(diagnostic_panel, lv_color_hex(kBlue), 0);
+    lv_obj_set_style_border_width(diagnostic_panel, 2, 0);
+    lv_obj_set_style_radius(diagnostic_panel, 47, 0);
+    lv_obj_set_style_pad_all(diagnostic_panel, 0, 0);
+    lv_obj_remove_flag(diagnostic_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(diagnostic_panel, LV_OBJ_FLAG_CLICKABLE);
+    make_label(diagnostic_panel, "GC8  /  SYSTEM STATUS",
+               &lv_font_montserrat_24, kBlue, 45, 16, 335, LV_TEXT_ALIGN_LEFT);
+    add_rule(diagnostic_panel, 21, 49, 378, 1, kRule, LV_OPA_80);
+    const char *names[12] = {
+        "COMPANION", "VOICE HID", "MEDIA HID", "BLE LINKS",
+        "LAST DROP", "UPTIME", "RESET", "POWER SOURCE",
+        "BATTERY", "ORIENTATION", "BRIGHTNESS", "IDLE DIM"
+    };
+    for (int i = 0; i < 12; ++i) {
+        const int top = 61 + i * 26;
+        make_label(diagnostic_panel, names[i], &lv_font_montserrat_16,
+                   i >= 10 ? kBlue : kMuted, 20, top, 165, LV_TEXT_ALIGN_LEFT);
+        diagnostic_values[i] = make_label(diagnostic_panel, "--",
+                         &lv_font_montserrat_16, kWhite, 183, top, 215,
+                         LV_TEXT_ALIGN_LEFT);
+    }
+    add_rule(diagnostic_panel, 20, 386, 380, 1, kRule, LV_OPA_70);
+    make_label(diagnostic_panel, "TAP BRIGHT / DIM TO CHANGE",
+               &lv_font_montserrat_16, kBlue, 57, 392, 322, LV_TEXT_ALIGN_CENTER);
+    make_label(diagnostic_panel, "TAP ELSEWHERE TO CLOSE",
+               &lv_font_montserrat_16, kMuted, 67, 411, 300, LV_TEXT_ALIGN_CENTER);
+    lv_obj_add_flag(diagnostic_panel, LV_OBJ_FLAG_HIDDEN);
+
+    // The dashboard is otherwise non-interactive. The transparent top layer
+    // reliably receives taps over clock, labels, graphics and idle panel.
+    // Touch never invokes garage PWR, BOOT voice or any network action.
+    auto *touch_surface = lv_obj_create(screen);
+    lv_obj_set_pos(touch_surface, 0, 0);
+    lv_obj_set_size(touch_surface, 466, 466);
+    lv_obj_set_style_bg_opa(touch_surface, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(touch_surface, 0, 0);
+    lv_obj_set_style_pad_all(touch_surface, 0, 0);
+    lv_obj_remove_flag(touch_surface, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(touch_surface, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(touch_surface, orientation_touch_event,
+                        LV_EVENT_ALL, nullptr);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
     refresh_navigation(nullptr);

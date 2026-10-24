@@ -1,5 +1,19 @@
 # GC8 Gauge Display
 
+## 2026-10-24 — Screen rotation for charging (1.75C, experimental)
+
+The exact Waveshare **ESP32-S3-Touch-AMOLED-1.75C** has a QMI8658 IMU (I2C `0x6B`) and a CO5300 display with a BSP hardware rotation command. The charging connector can point sideways or up while the **entire** 466x466 dashboard (artwork, arrow, clock, status, battery, AFR) remains readable.
+
+**How to use (no Android app control):**
+
+- **Tap anywhere on the display:** Rotate one quarter turn (0° → 90° → 180° → 270° → 0°) and **LOCK** that orientation. A brief `ROTATION LOCK ...` banner appears. The manual setting survives power cycles. This works even if the IMU is missing.
+- **For automatic orientation:** Hold the device **vertically, still, with USB pointing straight down**, then **press and hold the *touchscreen*** (not the BOOT/PWR button) for LVGL's long-press interval. After the `AUTO ROTATE ON` banner, the firmware records the current gravity sector as **physical upright (0°)** and stores it in NVS. From then on, it automatically counter-rotates the panel at the next steady 90° device orientation; the calibration persists across reboots.
+- **Exit auto mode:** Tap the display once to rotate one step and lock. Long-touch while USB-down to recalibrate/re-enable auto. `HOLD UPRIGHT TO CALIBRATE` means the QMI8658 did not report a stable, sufficiently vertical orientation; move the unit upright, stop moving, and retry.
+- Auto mode uses the IMU's **accelerometer** at 62.5 Hz (no gyroscope dead reckoning), sampling every 150 ms. It filters noise, requires about **1.5 seconds stable** before switching, ignores large acceleration and horizontal/face-up positions, and has a diagonal dead-zone to reduce chattering in a vehicle. A stationary face-up screen cannot infer compass/azimuth rotation from gravity alone.
+- **Limit:** The full-frame panel rotates in 90° steps, **not arbitrary fractional angles** like 23° or 45°. Fully smooth arbitrary-angle text would require a separate software rendering approach and isn't implemented. This is deliberate for reliability/legibility.
+- **Implementation:** `main/device_orientation.cpp` uses the BSP's *existing* I2C bus and its own QMI8658 device handle (the AXP2101 battery reading uses a distinct address). NVS namespace `gc8_orient` stores the manual angle and optional USB-down calibration. Missing/invalid IMU falls back to manual 0/90/180/270 without touching the dashboard or its BLE services. `main/main.cpp` invokes `bsp_display_rotation_set(...)` from the existing LVGL refresh task; no new Bluetooth characteristics, phone permissions, BOOT/PWR mappings or new touch buttons were added.
+- **Build/test:** `git pull`, `.\\build.bat`, then flash with normal ESP-IDF workflow. No Android APK rebuild needed for this rotation feature. First test it **stationary**: tap through 4 orientations; then hold USB-down vertically for 2 seconds and long-touch the *screen* to calibrate; physically turn the device one quarter rotation and observe. If auto direction looks inverted, use manual taps until calibration behavior can be inspected. This source was not compiled/flashed on the hardware by the assistant.
+
 ## Garage button — current working configuration (2026-10-24)
 
 **[Full end-to-end setup: Android Companion, Samsung Modes and Routines, SmartThings Garage Open/Close](https://github.com/JohnathanKong/gc8-gauge-display-android/blob/main/GARAGE_SETUP.md)**

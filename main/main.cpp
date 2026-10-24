@@ -198,8 +198,6 @@ void draw_home() {
     // Reference-matched 466px round cockpit. Layers: atmospheric road,
     // segmented rim gauge, fine dividers, then white text and blue arrow.
     cockpit_art::rasterize();
-    add_rim(screen, 5, 0x49667B, LV_OPA_70);
-    add_rim(screen, 11, 0x1D3856, LV_OPA_50);
     if (cockpit_art::road.data) {
         add_sprite(screen, &cockpit_art::road,
                    cockpit_art::road_x, cockpit_art::road_y, kBlue,
@@ -210,6 +208,9 @@ void draw_home() {
                                      cockpit_art::sweep_x,
                                      cockpit_art::sweep_y, kBlue);
     }
+    // Draw the two rim highlights ABOVE atmospheric artwork, not beneath it.
+    add_rim(screen, 5, 0x49667B, LV_OPA_70);
+    add_rim(screen, 11, 0x1D3856, LV_OPA_50);
 
     // All reference separators are intentional: upper-left and upper-right
     // rule fragments, vertical arrow/street separator, and AFR horizon line.

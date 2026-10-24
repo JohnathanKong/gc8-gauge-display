@@ -35,6 +35,7 @@ Gc8BleSnapshot gc8_ble_snapshot();
 // authorized phone app; does not run Wi-Fi or know Meross credentials.
 void gc8_ble_garage_button_pressed();
 
-// Lower BOOT short press: requests a configured app launch on the phone.
-// No direct app/garage control exists on this ESP32.
+// Lower BOOT short press: emits bonded Bluetooth HID Consumer Control
+// Voice Command (usage 0x0CF). Android routes this to its default
+// digital assistant (Gemini when configured); GC8 Companion is not involved.
 void gc8_ble_app_button_pressed();

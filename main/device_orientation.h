@@ -10,6 +10,8 @@ bool device_orientation_is_auto();
 // Short touch: rotate by one quarter-turn and lock that orientation.
 // Persists the manual selection across resets.
 uint8_t device_orientation_next_manual();
+// Explicit phone-selected angle (0,1,2,3 quarter turns). Never needs touch.
+bool device_orientation_set_manual(uint8_t quarter_turns);
 
 // Long touch while holding the physical device USB-port-down and vertical:
 // record QMI8658 gravity sector as the upright reference and enable auto.

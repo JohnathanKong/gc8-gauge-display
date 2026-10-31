@@ -7,8 +7,8 @@ void device_orientation_start();
 uint8_t device_orientation_rotation();  // 0, 1, 2, 3 = 0/90/180/270
 bool device_orientation_is_auto();
 
-// Short touch: rotate by one quarter-turn and lock that orientation.
-// Persists the manual selection across resets.
+// Legacy helper retained; orientation is now explicitly controlled by
+// GC8 Companion on the phone. Not called by any touchscreen handler.
 uint8_t device_orientation_next_manual();
 // Explicit phone-selected angle (0,1,2,3 quarter turns). Never needs touch.
 bool device_orientation_set_manual(uint8_t quarter_turns);

@@ -194,6 +194,24 @@ uint16_t device_power_idle_dim_seconds() {
     return idle_dim_seconds.load();
 }
 
+bool device_power_set_brightness(uint8_t percentage) {
+    if (percentage != 40 && percentage != 60 && percentage != 75 &&
+        percentage != 90 && percentage != 100) return false;
+    normal_brightness.store(percentage);
+    device_power_note_activity();
+    persist_settings();
+    return true;
+}
+
+bool device_power_set_idle_dim(uint16_t seconds) {
+    if (seconds != 0 && seconds != 60 && seconds != 300 && seconds != 900)
+        return false;
+    idle_dim_seconds.store(seconds);
+    device_power_note_activity();
+    persist_settings();
+    return true;
+}
+
 uint8_t device_power_cycle_brightness() {
     constexpr uint8_t levels[] = {40, 60, 75, 90, 100};
     const uint8_t current = normal_brightness.load();

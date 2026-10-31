@@ -359,10 +359,11 @@ void refresh_navigation(lv_timer_t *) {
         lv_obj_add_flag(nav_separator, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_HIDDEN);
 
-        // Only the former READY state becomes a bouncing signal + grid.
-        // Connection errors and in-progress Maps guidance still have their
-        // existing information, but without the old visible container.
-        const bool standby = current.connected && !current.route_active;
+        // Standby is visual-only: BLE connection is already reported in the
+        // small top status label, so never show a large CONNECT PHONE prompt.
+        // Keep the animation active when disconnected or when Maps is idle;
+        // route guidance still has priority whenever it becomes available.
+        const bool standby = !current.connected || !current.route_active;
         idle_bounce_active = standby;
         if (standby) {
             lv_obj_remove_flag(idle_bounce, LV_OBJ_FLAG_HIDDEN);
@@ -375,11 +376,7 @@ void refresh_navigation(lv_timer_t *) {
             lv_obj_remove_flag(idle_title, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(idle_hint, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_text_font(idle_title, &lv_font_montserrat_40, 0);
-            if (!current.connected) {
-                lv_label_set_text(idle_heading, "GC8 COMPANION");
-                lv_label_set_text(idle_title, "CONNECT PHONE");
-                lv_label_set_text(idle_hint, "OPEN COMPANION TO PAIR");
-            } else if (current.route_active && current.guidance_title[0]) {
+            if (current.route_active && current.guidance_title[0]) {
                 lv_label_set_text(idle_heading, "GOOGLE MAPS");
                 lv_obj_set_style_text_font(idle_title,
                     std::strlen(current.guidance_title) > 16
@@ -567,8 +564,8 @@ void draw_home() {
     lv_obj_remove_flag(idle_dot, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(idle_dot, LV_OBJ_FLAG_CLICKABLE);
 
-    // Keep route-acquisition and pairing messages functional, without a
-    // boxed dashboard panel; the text is hidden entirely in idle standby.
+    // Keep route-acquisition messages functional without a card; there is
+    // no large phone-connection prompt because the top BLE label covers it.
     idle_heading = make_label(idle_panel, "", &lv_font_montserrat_20,
                               kBlue, 109, 19, 248, LV_TEXT_ALIGN_CENTER);
     idle_title = make_label(idle_panel, "", &lv_font_montserrat_40,

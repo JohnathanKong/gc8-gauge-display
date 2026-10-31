@@ -519,13 +519,13 @@ void draw_home() {
     // dynamic value BELOW the centre of the arc. No fake 14.7 is shown;
     // --.- remains until BLE delivers a demo or a future live measurement.
     afr_label = make_label(screen, "AFR", &lv_font_montserrat_20,
-                           kWhite, 157, 347, 152, LV_TEXT_ALIGN_CENTER);
-    afr_value = make_label(screen, "--.-", &lv_font_montserrat_26,
-                           kWhite, 175, 423, 116, LV_TEXT_ALIGN_CENTER);
+                           kWhite, 157, 365, 152, LV_TEXT_ALIGN_CENTER);
+    afr_value = make_label(screen, "--.-", &lv_font_montserrat_20,
+                           kWhite, 175, 433, 116, LV_TEXT_ALIGN_CENTER);
     make_label(screen, "10", &lv_font_montserrat_16,
-               0xA4D6FF, 83, 378, 46, LV_TEXT_ALIGN_CENTER);
+               0xA4D6FF, 83, 398, 46, LV_TEXT_ALIGN_CENTER);
     make_label(screen, "20", &lv_font_montserrat_16,
-               0xA4D6FF, 337, 378, 46, LV_TEXT_ALIGN_CENTER);
+               0xA4D6FF, 337, 398, 46, LV_TEXT_ALIGN_CENTER);
 
     // A small drop-down overlay for upper PWR / Meross requests. Only an
     // acknowledged command can say SENT; local button receipt says REQUESTED.

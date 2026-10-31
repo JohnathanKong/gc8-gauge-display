@@ -46,7 +46,6 @@ char garage_previous_text[32] = {};
 int last_device_battery = -2;
 bool last_battery_charging = false;
 bool last_external_power = false, last_power_status_valid = false;
-bool diagnostics_visible = false;
 int applied_brightness = -1;
 lv_obj_t *afr_sweep_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
@@ -55,7 +54,6 @@ uint32_t boot_count = 0;
 esp_reset_reason_t boot_reason = ESP_RST_UNKNOWN;
 bool first_update = true;
 uint8_t applied_orientation = 0; // Native CO5300 starts unrotated.
-bool orientation_long_press_handled = false;
 
 const char *reset_reason_text(esp_reset_reason_t reason) {
     switch (reason) {

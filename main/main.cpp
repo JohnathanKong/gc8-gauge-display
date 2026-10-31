@@ -11,6 +11,7 @@
 #include "garage_button.h"
 #include "nav_arrow_assets.h"
 #include "cockpit_art.h"
+#include "audio_reactivity.h"
 #include "lvgl.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
@@ -38,9 +39,10 @@ lv_obj_t *battery_tip = nullptr;
 lv_obj_t *nav_separator = nullptr;
 lv_obj_t *idle_panel = nullptr; // Invisible parent; no background card.
 lv_obj_t *idle_bounce = nullptr;
-lv_obj_t *idle_dot = nullptr;
-lv_obj_t *idle_dot_halo = nullptr;
+lv_obj_t *idle_wave_layer = nullptr;
 bool idle_bounce_active = false;
+float idle_wave_phase = 0.f;
+float idle_wave_amplitude = 0.f;
 lv_obj_t *idle_heading = nullptr;
 lv_obj_t *idle_title = nullptr;
 lv_obj_t *idle_hint = nullptr;
@@ -175,19 +177,84 @@ void draw_arrow(const char *turn) {
     }
 }
 
-// Called by the same LVGL task as navigation. No BLE/UI data races,
-// no allocations or expensive artwork redraws on animation frames.
-void animate_idle_bounce(lv_timer_t *) {
-    if (!idle_bounce_active || !idle_dot || !idle_dot_halo) return;
-    // One smooth out-and-back traversal every 3.6 seconds. The moving light
-    // eases at both ends instead of snapping at the display rim.
+// Draw a light, blue audio-reactive wave on the transparent idle surface.
+// This callback runs ONLY on LVGL's GUI thread. No PCM samples or audio
+// processing are ever passed to LVGL, BLE or the phone.
+void draw_idle_sound_wave(lv_event_t *event) {
+    if (!idle_bounce_active || lv_event_get_code(event) != LV_EVENT_DRAW_MAIN) return;
+    auto *obj = static_cast<lv_obj_t *>(lv_event_get_target(event));
+    auto *layer = lv_event_get_layer(event);
+    if (!layer) return;
+    lv_area_t bounds;
+    lv_obj_get_coords(obj, &bounds);
+
+    constexpr int count = 64;
+    constexpr int width = 338;
     constexpr float pi = 3.14159265358979323846f;
-    const int64_t ms = esp_timer_get_time() / 1000;
-    const float phase = static_cast<float>(ms % 3600) / 3600.f;
-    const float travel = 0.5f - 0.5f * std::cos(2.f * pi * phase);
-    const int centre_x = 72 + static_cast<int>(322.f * travel + 0.5f);
-    lv_obj_set_x(idle_dot_halo, centre_x - 20);
-    lv_obj_set_x(idle_dot, centre_x - 7);
+    const float phase = idle_wave_phase;
+    const float amplitude = idle_wave_amplitude;
+
+    // Keep a calm horizontal centre when quiet or when mic initialization
+    // failed. Sound energy controls height; the wave is visual, not a
+    // calibrated diagnostic instrument or a claim of measured engine RPM.
+    int x_previous = bounds.x1 + 64;
+    int y_previous = bounds.y1 + 86;
+    for (int i = 1; i <= count; ++i) {
+        auto wave_y = [&](int index) {
+            const float pos = static_cast<float>(index) / count;
+            const float centred = (pos - 0.5f) / 0.43f;
+            const float taper = std::exp(-0.5f * centred * centred *
+                                        centred * centred);
+            const float carrier = std::sin(2.f * pi * (2.65f * pos) - phase);
+            const float detail = std::sin(2.f * pi * (8.2f * pos) +
+                                          phase * 0.72f);
+            const float vibration = amplitude * taper *
+                                    (30.f * carrier + 6.f * detail);
+            return bounds.y1 + 86 + static_cast<int>(std::round(vibration));
+        };
+        const int x = bounds.x1 + 64 + (i * width) / count;
+        const int y = wave_y(i);
+        if (i == 1) y_previous = wave_y(0);
+
+        lv_draw_line_dsc_t glow_line;
+        lv_draw_line_dsc_init(&glow_line);
+        glow_line.color = lv_color_hex(0x168EFF);
+        glow_line.opa = LV_OPA_20;
+        glow_line.width = 8;
+        glow_line.p1.x = x_previous;
+        glow_line.p1.y = y_previous;
+        glow_line.p2.x = x;
+        glow_line.p2.y = y;
+        lv_draw_line(layer, &glow_line);
+
+        lv_draw_line_dsc_t fine_line;
+        lv_draw_line_dsc_init(&fine_line);
+        fine_line.color = lv_color_hex(0x8AD7FF);
+        fine_line.opa = LV_OPA_COVER;
+        fine_line.width = 2;
+        fine_line.p1.x = x_previous;
+        fine_line.p1.y = y_previous;
+        fine_line.p2.x = x;
+        fine_line.p2.y = y;
+        lv_draw_line(layer, &fine_line);
+
+        x_previous = x;
+        y_previous = y;
+    }
+}
+
+// 25 FPS: inexpensive UI smoothing, separate from the audio task.
+// Audio sampling is continuous only in standby and is never performed here.
+void animate_idle_sound_wave(lv_timer_t *) {
+    if (!idle_bounce_active || !idle_wave_layer) return;
+    const float measured = audio_reactivity_level();
+    // Fast rise, graceful fade; gentle yet responsive without jitter.
+    const float blend = measured > idle_wave_amplitude ? 0.38f : 0.10f;
+    idle_wave_amplitude += (measured - idle_wave_amplitude) * blend;
+    if (idle_wave_amplitude < 0.002f) idle_wave_amplitude = 0.f;
+    idle_wave_phase += 0.13f + 0.16f * idle_wave_amplitude;
+    if (idle_wave_phase > 6.2831853f) idle_wave_phase -= 6.2831853f;
+    lv_obj_invalidate(idle_wave_layer);
 }
 
 void refresh_navigation(lv_timer_t *) {
@@ -342,6 +409,7 @@ void refresh_navigation(lv_timer_t *) {
     const bool has_turn = current.connected && current.has_navigation;
     if (has_turn) {
         idle_bounce_active = false;
+        audio_reactivity_enable(false);
         lv_obj_add_flag(idle_panel, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(distance, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(street, LV_OBJ_FLAG_HIDDEN);
@@ -365,6 +433,7 @@ void refresh_navigation(lv_timer_t *) {
         // route guidance still has priority whenever it becomes available.
         const bool standby = !current.connected || !current.route_active;
         idle_bounce_active = standby;
+        audio_reactivity_enable(standby);
         if (standby) {
             lv_obj_remove_flag(idle_bounce, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(idle_heading, LV_OBJ_FLAG_HIDDEN);
@@ -523,8 +592,9 @@ void draw_home() {
     lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_CLICKABLE);
 
-    // Grid Bounce replaces the READY text only. Nothing here covers the
-    // independent 30-segment AFR arc at the bottom of the display.
+    // Keep the approved subtle perspective grid and the same idle zone,
+    // but replace the fake left-right dot with a microphone-driven waveform.
+    // No new container, status text, or changes to the permanent AFR gauge.
     idle_bounce = lv_obj_create(idle_panel);
     lv_obj_set_pos(idle_bounce, 0, 0);
     lv_obj_set_size(idle_bounce, 466, 185);
@@ -538,31 +608,18 @@ void draw_home() {
                    cockpit_art::grid_x, cockpit_art::grid_y - 118,
                    0x2C8AFF, LV_OPA_60);
     }
-    // The fine full-width line is stationary; only the glow moves.
-    add_rule(idle_bounce, 64, 86, 338, 2, 0x269FFF, LV_OPA_70);
-    idle_dot_halo = lv_obj_create(idle_bounce);
-    lv_obj_set_pos(idle_dot_halo, 52, 66);
-    lv_obj_set_size(idle_dot_halo, 40, 40);
-    lv_obj_set_style_radius(idle_dot_halo, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(idle_dot_halo, lv_color_hex(0x198BFF), 0);
-    lv_obj_set_style_bg_opa(idle_dot_halo, LV_OPA_20, 0);
-    lv_obj_set_style_border_width(idle_dot_halo, 0, 0);
-    lv_obj_set_style_pad_all(idle_dot_halo, 0, 0);
-    lv_obj_remove_flag(idle_dot_halo, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(idle_dot_halo, LV_OBJ_FLAG_CLICKABLE);
-    idle_dot = lv_obj_create(idle_bounce);
-    lv_obj_set_pos(idle_dot, 65, 79);
-    lv_obj_set_size(idle_dot, 14, 14);
-    lv_obj_set_style_radius(idle_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(idle_dot, lv_color_hex(0xD8F5FF), 0);
-    lv_obj_set_style_bg_opa(idle_dot, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(idle_dot, 0, 0);
-    lv_obj_set_style_shadow_color(idle_dot, lv_color_hex(0x168BFF), 0);
-    lv_obj_set_style_shadow_opa(idle_dot, LV_OPA_70, 0);
-    lv_obj_set_style_shadow_width(idle_dot, 15, 0);
-    lv_obj_set_style_pad_all(idle_dot, 0, 0);
-    lv_obj_remove_flag(idle_dot, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(idle_dot, LV_OBJ_FLAG_CLICKABLE);
+    // Static baseline survives silence or unavailable microphones.
+    add_rule(idle_bounce, 64, 86, 338, 1, 0x155686, LV_OPA_50);
+    idle_wave_layer = lv_obj_create(idle_bounce);
+    lv_obj_set_pos(idle_wave_layer, 0, 0);
+    lv_obj_set_size(idle_wave_layer, 466, 185);
+    lv_obj_set_style_bg_opa(idle_wave_layer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(idle_wave_layer, 0, 0);
+    lv_obj_set_style_pad_all(idle_wave_layer, 0, 0);
+    lv_obj_remove_flag(idle_wave_layer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(idle_wave_layer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(idle_wave_layer, draw_idle_sound_wave,
+                        LV_EVENT_DRAW_MAIN, nullptr);
 
     // Keep route-acquisition messages functional without a card; there is
     // no large phone-connection prompt because the top BLE label covers it.
@@ -606,7 +663,7 @@ void draw_home() {
     lv_obj_add_flag(garage_toast, LV_OBJ_FLAG_HIDDEN);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
-    lv_timer_create(animate_idle_bounce, 33, nullptr);
+    lv_timer_create(animate_idle_sound_wave, 40, nullptr);
     refresh_navigation(nullptr);
 }
 } // namespace
@@ -627,4 +684,5 @@ extern "C" void app_main(void) {
     device_orientation_start();
     device_power_start(); // Sample genuine battery on BSP's shared I2C bus.
     garage_button_start(); // Upper PWR=garage; short lower BOOT=HID voice (GPIO0 stays flash strap).
+    audio_reactivity_start(); // ES7210 mic, local RMS only; never transmits audio.
 }

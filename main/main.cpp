@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_system.h"
@@ -35,7 +36,11 @@ lv_obj_t *battery_fill = nullptr;
 lv_obj_t *battery_outline = nullptr;
 lv_obj_t *battery_tip = nullptr;
 lv_obj_t *nav_separator = nullptr;
-lv_obj_t *idle_panel = nullptr;
+lv_obj_t *idle_panel = nullptr; // Invisible parent; no background card.
+lv_obj_t *idle_bounce = nullptr;
+lv_obj_t *idle_dot = nullptr;
+lv_obj_t *idle_dot_halo = nullptr;
+bool idle_bounce_active = false;
 lv_obj_t *idle_heading = nullptr;
 lv_obj_t *idle_title = nullptr;
 lv_obj_t *idle_hint = nullptr;
@@ -168,6 +173,21 @@ void draw_arrow(const char *turn) {
         }
         lv_obj_add_flag(maneuver_graphic, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+// Called by the same LVGL task as navigation. No BLE/UI data races,
+// no allocations or expensive artwork redraws on animation frames.
+void animate_idle_bounce(lv_timer_t *) {
+    if (!idle_bounce_active || !idle_dot || !idle_dot_halo) return;
+    // One smooth out-and-back traversal every 3.6 seconds. The moving light
+    // eases at both ends instead of snapping at the display rim.
+    constexpr float pi = 3.14159265358979323846f;
+    const int64_t ms = esp_timer_get_time() / 1000;
+    const float phase = static_cast<float>(ms % 3600) / 3600.f;
+    const float travel = 0.5f - 0.5f * std::cos(2.f * pi * phase);
+    const int centre_x = 72 + static_cast<int>(322.f * travel + 0.5f);
+    lv_obj_set_x(idle_dot_halo, centre_x - 20);
+    lv_obj_set_x(idle_dot, centre_x - 7);
 }
 
 void refresh_navigation(lv_timer_t *) {
@@ -317,11 +337,11 @@ void refresh_navigation(lv_timer_t *) {
         lv_label_set_text(afr_label, "AFR");
     }
 
-    // The default screen is NOT a broken navigation layout with '--' and
-    // half-empty columns. Idle and route-acquiring states get a full-width
-    // centered status panel above the permanent AFR gauge.
+    // With a valid Maps maneuver, show the ORIGINAL navigation UI.
+    // The grid never covers arrows, roads, distances or AFR.
     const bool has_turn = current.connected && current.has_navigation;
     if (has_turn) {
+        idle_bounce_active = false;
         lv_obj_add_flag(idle_panel, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(distance, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(street, LV_OBJ_FLAG_HIDDEN);
@@ -338,35 +358,44 @@ void refresh_navigation(lv_timer_t *) {
         lv_obj_add_flag(street, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(nav_separator, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_HIDDEN);
-        // The text-guidance state temporarily uses smaller type. Restore the
-        // original font for READY/PAUSED/ROUTE STARTED after it disappears.
-        lv_obj_set_style_text_font(idle_title, &lv_font_montserrat_40, 0);
-        if (!current.connected) {
-            lv_label_set_text(idle_heading, "GC8 COMPANION");
-            lv_label_set_text(idle_title, "CONNECT PHONE");
-            lv_label_set_text(idle_hint, "OPEN COMPANION TO PAIR");
-        } else if (current.route_active && current.guidance_title[0]) {
-            // Explicit Maps message with no reliable left/right bearing or
-            // next-turn distance. Keep the cockpit visually intentional.
-            lv_label_set_text(idle_heading, "GOOGLE MAPS");
-            lv_obj_set_style_text_font(idle_title,
-                std::strlen(current.guidance_title) > 16
-                    ? &lv_font_montserrat_26 : &lv_font_montserrat_32, 0);
-            lv_label_set_text(idle_title, current.guidance_title);
-            lv_label_set_text(idle_hint,
-                current.guidance_hint[0] ? current.guidance_hint : "FOLLOW MAPS");
-        } else if (current.route_active && current.guidance_stale) {
-            lv_label_set_text(idle_heading, "GOOGLE MAPS");
-            lv_label_set_text(idle_title, "GUIDANCE PAUSED");
-            lv_label_set_text(idle_hint, "WAITING FOR MAPS");
-        } else if (current.route_active) {
-            lv_label_set_text(idle_heading, "GOOGLE MAPS");
-            lv_label_set_text(idle_title, "ROUTE STARTED");
-            lv_label_set_text(idle_hint, "WAITING FOR FIRST TURN");
+
+        // Only the former READY state becomes a bouncing signal + grid.
+        // Connection errors and in-progress Maps guidance still have their
+        // existing information, but without the old visible container.
+        const bool standby = current.connected && !current.route_active;
+        idle_bounce_active = standby;
+        if (standby) {
+            lv_obj_remove_flag(idle_bounce, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(idle_heading, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(idle_title, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(idle_hint, LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_label_set_text(idle_heading, "NAVIGATION");
-            lv_label_set_text(idle_title, "READY");
-            lv_label_set_text(idle_hint, "START GOOGLE MAPS");
+            lv_obj_add_flag(idle_bounce, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(idle_heading, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(idle_title, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(idle_hint, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_font(idle_title, &lv_font_montserrat_40, 0);
+            if (!current.connected) {
+                lv_label_set_text(idle_heading, "GC8 COMPANION");
+                lv_label_set_text(idle_title, "CONNECT PHONE");
+                lv_label_set_text(idle_hint, "OPEN COMPANION TO PAIR");
+            } else if (current.route_active && current.guidance_title[0]) {
+                lv_label_set_text(idle_heading, "GOOGLE MAPS");
+                lv_obj_set_style_text_font(idle_title,
+                    std::strlen(current.guidance_title) > 16
+                        ? &lv_font_montserrat_26 : &lv_font_montserrat_32, 0);
+                lv_label_set_text(idle_title, current.guidance_title);
+                lv_label_set_text(idle_hint,
+                    current.guidance_hint[0] ? current.guidance_hint : "FOLLOW MAPS");
+            } else if (current.route_active && current.guidance_stale) {
+                lv_label_set_text(idle_heading, "GOOGLE MAPS");
+                lv_label_set_text(idle_title, "GUIDANCE PAUSED");
+                lv_label_set_text(idle_hint, "WAITING FOR MAPS");
+            } else {
+                lv_label_set_text(idle_heading, "GOOGLE MAPS");
+                lv_label_set_text(idle_title, "ROUTE STARTED");
+                lv_label_set_text(idle_hint, "WAITING FOR FIRST TURN");
+            }
         }
     }
 }
@@ -485,34 +514,67 @@ void draw_home() {
     lv_obj_set_size(street, 224, 162);
     lv_label_set_long_mode(street, LV_LABEL_LONG_DOT);
 
-    // Stylish centered standby overlay, occupying the complete navigation
-    // zone until a real direction arrives. It doesn't obscure the time,
-    // PMIC battery or the persistent AFR readout.
+    // Invisible grouping parent ONLY. Do not bring back the READY card,
+    // its border, background fill, status header, or decorative dividers.
     idle_panel = lv_obj_create(screen);
-    lv_obj_set_pos(idle_panel, 32, 126);
-    lv_obj_set_size(idle_panel, 402, 168);
-    lv_obj_set_style_radius(idle_panel, 27, 0);
-    lv_obj_set_style_bg_color(idle_panel, lv_color_hex(0x061523), 0);
-    lv_obj_set_style_bg_opa(idle_panel, LV_OPA_80, 0);
-    lv_obj_set_style_border_color(idle_panel, lv_color_hex(kRule), 0);
-    lv_obj_set_style_border_width(idle_panel, 1, 0);
-    lv_obj_set_style_border_opa(idle_panel, LV_OPA_80, 0);
+    lv_obj_set_pos(idle_panel, 0, 118);
+    lv_obj_set_size(idle_panel, 466, 185);
+    lv_obj_set_style_bg_opa(idle_panel, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(idle_panel, 0, 0);
+    lv_obj_set_style_radius(idle_panel, 0, 0);
     lv_obj_set_style_pad_all(idle_panel, 0, 0);
     lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(idle_panel, LV_OBJ_FLAG_CLICKABLE);
 
-    // Layered internal rules turn an otherwise empty dashboard into a clear,
-    // intentional status surface, without imitating a navigation arrow.
-    add_rule(idle_panel, 47, 26, 93, 1, kBlue, LV_OPA_50);
-    add_rule(idle_panel, 262, 26, 93, 1, kBlue, LV_OPA_50);
-    idle_heading = make_label(idle_panel, "NAVIGATION", &lv_font_montserrat_20,
-                              kBlue, 77, 17, 248, LV_TEXT_ALIGN_CENTER);
-    idle_title = make_label(idle_panel, "READY", &lv_font_montserrat_40,
-                            kWhite, 20, 55, 362, LV_TEXT_ALIGN_CENTER);
-    add_rule(idle_panel, 122, 118, 158, 1, kRule, LV_OPA_50);
-    idle_hint = make_label(idle_panel, "START GOOGLE MAPS",
-                           &lv_font_montserrat_20,
-                           kMuted, 20, 131, 362, LV_TEXT_ALIGN_CENTER);
+    // Grid Bounce replaces the READY text only. Nothing here covers the
+    // independent 30-segment AFR arc at the bottom of the display.
+    idle_bounce = lv_obj_create(idle_panel);
+    lv_obj_set_pos(idle_bounce, 0, 0);
+    lv_obj_set_size(idle_bounce, 466, 185);
+    lv_obj_set_style_bg_opa(idle_bounce, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(idle_bounce, 0, 0);
+    lv_obj_set_style_pad_all(idle_bounce, 0, 0);
+    lv_obj_remove_flag(idle_bounce, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(idle_bounce, LV_OBJ_FLAG_CLICKABLE);
+    if (cockpit_art::idle_grid.data) {
+        add_sprite(idle_bounce, &cockpit_art::idle_grid,
+                   cockpit_art::grid_x, cockpit_art::grid_y - 118,
+                   0x2C8AFF, LV_OPA_60);
+    }
+    // The fine full-width line is stationary; only the glow moves.
+    add_rule(idle_bounce, 64, 86, 338, 2, 0x269FFF, LV_OPA_70);
+    idle_dot_halo = lv_obj_create(idle_bounce);
+    lv_obj_set_pos(idle_dot_halo, 52, 66);
+    lv_obj_set_size(idle_dot_halo, 40, 40);
+    lv_obj_set_style_radius(idle_dot_halo, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(idle_dot_halo, lv_color_hex(0x198BFF), 0);
+    lv_obj_set_style_bg_opa(idle_dot_halo, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(idle_dot_halo, 0, 0);
+    lv_obj_set_style_pad_all(idle_dot_halo, 0, 0);
+    lv_obj_remove_flag(idle_dot_halo, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(idle_dot_halo, LV_OBJ_FLAG_CLICKABLE);
+    idle_dot = lv_obj_create(idle_bounce);
+    lv_obj_set_pos(idle_dot, 65, 79);
+    lv_obj_set_size(idle_dot, 14, 14);
+    lv_obj_set_style_radius(idle_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(idle_dot, lv_color_hex(0xD8F5FF), 0);
+    lv_obj_set_style_bg_opa(idle_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(idle_dot, 0, 0);
+    lv_obj_set_style_shadow_color(idle_dot, lv_color_hex(0x168BFF), 0);
+    lv_obj_set_style_shadow_opa(idle_dot, LV_OPA_70, 0);
+    lv_obj_set_style_shadow_width(idle_dot, 15, 0);
+    lv_obj_set_style_pad_all(idle_dot, 0, 0);
+    lv_obj_remove_flag(idle_dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(idle_dot, LV_OBJ_FLAG_CLICKABLE);
+
+    // Keep route-acquisition and pairing messages functional, without a
+    // boxed dashboard panel; the text is hidden entirely in idle standby.
+    idle_heading = make_label(idle_panel, "", &lv_font_montserrat_20,
+                              kBlue, 109, 19, 248, LV_TEXT_ALIGN_CENTER);
+    idle_title = make_label(idle_panel, "", &lv_font_montserrat_40,
+                            kWhite, 25, 63, 416, LV_TEXT_ALIGN_CENTER);
+    idle_hint = make_label(idle_panel, "", &lv_font_montserrat_20,
+                           kMuted, 25, 137, 416, LV_TEXT_ALIGN_CENTER);
 
     // Keep the large dynamic AFR value ABOVE the 30-segment arc and the
     // compact AFR caption BELOW it, in both navigation and idle scenes.
@@ -547,6 +609,7 @@ void draw_home() {
     lv_obj_add_flag(garage_toast, LV_OBJ_FLAG_HIDDEN);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
+    lv_timer_create(animate_idle_bounce, 33, nullptr);
     refresh_navigation(nullptr);
 }
 } // namespace

@@ -1,5 +1,19 @@
 # GC8 Gauge Display
 
+## CURRENT: All display settings and diagnostics are controlled from the phone (Oct 31, 2026)
+
+The touchscreen control scheme described in the older October 24 notes below has been **replaced**. The Waveshare is now **display-only**: touching its tiny screen does not rotate, calibrate, change brightness, open diagnostics, or change settings. There is no on-gauge menu and no requirement to reach a rotated touch target.
+
+Open **GC8 Companion → Home → Open display controls**, or select the **Logs** tab (now titled **Display & diagnostics**). The phone offers large explicit **0° / 90° / 180° / 270°** buttons, **Calibrate automatic rotation** (hold gauge still and USB-down before selecting), **40/60/75/90/100% brightness**, and **Off/1/5/15 min idle dim** settings. Every command goes over the *existing* custom BLE GATT write characteristic. The board applies and stores the setting in its own NVS. The original upper PWR garage event and lower BOOT Gemini/media HID report remain independent.
+
+The **Refresh device status** button requests live state from the Waveshare using `GC8|1|SYS|GET`. Firmware responds with small `GC8|1|S|key|value` notifications (up to 20 ASCII bytes) plus `GC8|1|S|END` over the existing subscribed garage-event characteristic, without triggering a garage routine. These report stored rotation/mode, brightness/idle timeout, GATT/HID subscriptions, active BLE links, disconnect code/count, uptime, RAM, reset reason/boot count, and actual AXP2101 USB/battery/charging status. Configuration is `GC8|1|CFG|ROT|degrees`, `...|CFG|AUTO`, `...|CFG|BRIGHT|percent`, or `...|CFG|DIM|seconds`. A settings response is `GC8|1|ACK|OK` / `...|ERR`, followed by a fresh snapshot. HID report submitted counts do NOT prove that Gemini launched.
+
+**Recovery when the screen is sideways:** open the Companion phone app, ensure custom GC8 GATT is connected, tap **0°**. No need to touch the gauge. If BLE is unavailable, the fix cannot be delivered remotely; establish BLE first, or reflash recovery firmware if necessary. This is not an over-the-air firmware update.
+
+**Deploy both updated repos together.** Firmware: `git pull` then `.\\build.bat` and flash normally after successful build. Android: `git pull` and `docker compose run --rm android gradle --no-daemon assembleDebug`, then install `app/build/outputs/apk/debug/app-debug.apk` on the Fold8. The older Android APK cannot send these new commands. No new phone permissions or BLE profile identifiers are required.
+
+These changes were source-reviewed; a successful ESP-IDF/Gradle compilation and physical handset test have **not** been demonstrated in this session. **All earlier documentation telling you to tap or long-press the gauge touchscreen is obsolete.**
+
 ## 2026-10-24 — Consolidated pre-test firmware: diagnostics, power, and persisted preferences
 
 This is the single firmware branch combining the previously queued Bluetooth/Gemini, parking-lot guidance, and orientation experiments with **on-device observability and safe power management**. It does **not** enable an AEM wideband, pretend measured boost/AFR data exists, or add deep sleep.

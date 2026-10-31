@@ -767,9 +767,10 @@ void send_system_snapshot() {
     std::snprintf(row, sizeof(row), "%d,%lu", int(esp_reset_reason()),
                   static_cast<unsigned long>(boots));
     send_status_row('X', row);
-    std::snprintf(row, sizeof(row), "%u,%u,%u", unsigned(battery.vbus_valid && battery.external_power),
-                  unsigned(battery.vbus_valid && battery.battery_present),
-                  unsigned(battery.charging));
+    std::snprintf(row, sizeof(row), "%d,%d,%d",
+                  battery.vbus_valid ? int(battery.external_power) : -1,
+                  battery.vbus_valid ? int(battery.battery_present) : -1,
+                  battery.vbus_valid ? int(battery.charging) : -1);
     send_status_row('P', row);
     std::snprintf(row, sizeof(row), "%d", battery.valid ? int(battery.percent) : -1);
     send_status_row('F', row);

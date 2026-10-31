@@ -527,8 +527,13 @@ void draw_home() {
         {"16", 320, 391}, {"18", 372, 344}
     };
     for (const auto &mark : afr_scale) {
-        make_label(screen, mark.value, &lv_font_montserrat_16,
-                   kMuted, mark.x, mark.y, 30, LV_TEXT_ALIGN_CENTER);
+        // High contrast so the numbers remain readable over illuminated
+        // segments on the physically tiny 1.75-inch round panel.
+        auto *number = make_label(screen, mark.value, &lv_font_montserrat_16,
+                                  kWhite, mark.x, mark.y, 30, LV_TEXT_ALIGN_CENTER);
+        lv_obj_set_style_bg_color(number, lv_color_hex(kBlack), 0);
+        lv_obj_set_style_bg_opa(number, LV_OPA_80, 0);
+        lv_obj_set_style_radius(number, 3, 0);
     }
 
     // A small drop-down overlay for upper PWR / Meross requests. Only an

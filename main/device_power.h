@@ -25,3 +25,6 @@ uint8_t device_power_user_brightness();
 uint16_t device_power_idle_dim_seconds();
 uint8_t device_power_cycle_brightness();
 uint16_t device_power_cycle_idle_dim();
+// Explicit settings from Companion, persisted on the gauge itself.
+bool device_power_set_brightness(uint8_t percentage);
+bool device_power_set_idle_dim(uint16_t seconds);

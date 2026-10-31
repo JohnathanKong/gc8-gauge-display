@@ -389,7 +389,11 @@ void draw_home() {
     if (cockpit_art::afr_sweep.data) {
         afr_sweep_sprite = add_sprite(screen, &cockpit_art::afr_sweep,
                                      cockpit_art::sweep_x,
-                                     cockpit_art::sweep_y, kBlue);
+                                     cockpit_art::sweep_y, 0x126CEC);
+    }
+    if (cockpit_art::afr_tile_light.data) {
+        add_sprite(screen, &cockpit_art::afr_tile_light,
+                   cockpit_art::sweep_x, cockpit_art::sweep_y, 0x94C9FF);
     }
     // Draw the two rim highlights ABOVE atmospheric artwork, not beneath it.
     add_rim(screen, 5, 0x49667B, LV_OPA_70);
@@ -510,31 +514,18 @@ void draw_home() {
                            &lv_font_montserrat_20,
                            kMuted, 20, 131, 362, LV_TEXT_ALIGN_CENTER);
 
-    // AEM-inspired, near-rim 30-segment display; blue is decorative until
-    // actual wideband measurements and meaningful thresholds exist.
-    afr_label = make_label(screen, "WIDEBAND AFR", &lv_font_montserrat_20,
-                           kBlue, 115, 335, 236, LV_TEXT_ALIGN_CENTER);
-    afr_value = make_label(screen, "--.-", &lv_font_montserrat_48,
-                           kWhite, 104, 363, 258, LV_TEXT_ALIGN_CENTER);
-
-    // Fixed AFR SCALE LABELS, not sensor measurements. Keep the existing
-    // WIDEBAND AFR and --.- text readout in BOTH navigation and idle modes.
-    // These are deliberately outside the large center readout and toward the
-    // inner edge of the permanent, near-rim 30-segment sweep.
-    struct AfrScaleMark { const char *value; int x; int y; };
-    constexpr AfrScaleMark afr_scale[] = {
-        {"10",  70, 344}, {"12", 126, 391}, {"14", 222, 430},
-        {"16", 320, 391}, {"18", 372, 344}
-    };
-    for (const auto &mark : afr_scale) {
-        // High contrast so the numbers remain readable over illuminated
-        // segments on the physically tiny 1.75-inch round panel.
-        auto *number = make_label(screen, mark.value, &lv_font_montserrat_16,
-                                  kWhite, mark.x, mark.y, 30, LV_TEXT_ALIGN_CENTER);
-        lv_obj_set_style_bg_color(number, lv_color_hex(kBlack), 0);
-        lv_obj_set_style_bg_opa(number, LV_OPA_80, 0);
-        lv_obj_set_style_radius(number, 3, 0);
-    }
+    // Keep this reference layout IDENTICAL in nav and standby: AFR title
+    // floating above the 30 blue/cyan tiles, 10/20 at the ends, and the
+    // dynamic value BELOW the centre of the arc. No fake 14.7 is shown;
+    // --.- remains until BLE delivers a demo or a future live measurement.
+    afr_label = make_label(screen, "AFR", &lv_font_montserrat_20,
+                           kWhite, 157, 347, 152, LV_TEXT_ALIGN_CENTER);
+    afr_value = make_label(screen, "--.-", &lv_font_montserrat_26,
+                           kWhite, 175, 423, 116, LV_TEXT_ALIGN_CENTER);
+    make_label(screen, "10", &lv_font_montserrat_16,
+               0xA4D6FF, 83, 378, 46, LV_TEXT_ALIGN_CENTER);
+    make_label(screen, "20", &lv_font_montserrat_16,
+               0xA4D6FF, 337, 378, 46, LV_TEXT_ALIGN_CENTER);
 
     // A small drop-down overlay for upper PWR / Meross requests. Only an
     // acknowledged command can say SENT; local button receipt says REQUESTED.

@@ -518,7 +518,7 @@ void draw_home() {
     // compact AFR caption BELOW it, in both navigation and idle scenes.
     // Leave the true concentric rails and scale labels untouched.
     // --.- remains until BLE supplies a demo or future live sensor reading.
-    afr_value = make_label(screen, "--.-", &lv_font_montserrat_40,
+    afr_value = make_label(screen, "--.-", &lv_font_montserrat_44,
                            kWhite, 150, 345, 166, LV_TEXT_ALIGN_CENTER);
     afr_label = make_label(screen, "AFR", &lv_font_montserrat_20,
                            kWhite, 157, 433, 152, LV_TEXT_ALIGN_CENTER);

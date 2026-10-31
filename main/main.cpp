@@ -43,26 +43,16 @@ lv_obj_t *garage_toast = nullptr;
 lv_obj_t *garage_toast_text = nullptr;
 bool garage_toast_visible = false;
 char garage_previous_text[32] = {};
-char orientation_notice[32] = {};
-int64_t orientation_notice_until_us = 0;
-
-void orientation_feedback(const char *message) {
-    std::snprintf(orientation_notice, sizeof(orientation_notice), "%s", message);
-    orientation_notice_until_us = esp_timer_get_time() + 2500000LL;
-}
 int last_device_battery = -2;
 bool last_battery_charging = false;
 bool last_external_power = false, last_power_status_valid = false;
 bool diagnostics_visible = false;
 int applied_brightness = -1;
-lv_obj_t *diagnostic_panel = nullptr;
-lv_obj_t *diagnostic_values[12] = {};
-int64_t diagnostics_refresh_us = 0;
-uint32_t boot_count = 0;
-esp_reset_reason_t boot_reason = ESP_RST_UNKNOWN;
 lv_obj_t *afr_sweep_sprite = nullptr;
 lv_obj_t *afr_label = nullptr;
 Gc8BleSnapshot previous = {};
+uint32_t boot_count = 0;
+esp_reset_reason_t boot_reason = ESP_RST_UNKNOWN;
 bool first_update = true;
 uint8_t applied_orientation = 0; // Native CO5300 starts unrotated.
 bool orientation_long_press_handled = false;
@@ -182,74 +172,6 @@ void draw_arrow(const char *turn) {
     }
 }
 
-void update_diagnostics(int64_t now_us) {
-    if (!diagnostics_visible || diagnostic_panel == nullptr ||
-        (diagnostics_refresh_us && now_us - diagnostics_refresh_us < 1000000LL)) return;
-    diagnostics_refresh_us = now_us;
-    const auto ble = gc8_ble_diagnostics();
-    const auto power = device_power_snapshot();
-    char line[64];
-    lv_label_set_text(diagnostic_values[0], ble.gatt_subscribed ? "CONNECTED" : "WAITING");
-    std::snprintf(line, sizeof(line), "%s (%lu sent)",
-        ble.voice_hid_subscribed ? "READY" : "NO HOST",
-        static_cast<unsigned long>(ble.voice_reports_submitted));
-    lv_label_set_text(diagnostic_values[1], line);
-    std::snprintf(line, sizeof(line), "%s (%lu sent)",
-        ble.media_hid_subscribed ? "READY" : "NO HOST",
-        static_cast<unsigned long>(ble.media_reports_submitted));
-    lv_label_set_text(diagnostic_values[2], line);
-    std::snprintf(line, sizeof(line), "%u  total:%lu",
-        static_cast<unsigned>(ble.active_connections),
-        static_cast<unsigned long>(ble.connections));
-    lv_label_set_text(diagnostic_values[3], line);
-    if (ble.last_disconnect_reason >= 0) {
-        std::snprintf(line, sizeof(line), "code %d  (#%lu)",
-            ble.last_disconnect_reason,
-            static_cast<unsigned long>(ble.disconnects));
-        lv_label_set_text(diagnostic_values[4], line);
-    } else {
-        lv_label_set_text(diagnostic_values[4], "NONE");
-    }
-    const uint32_t seconds = static_cast<uint32_t>(now_us / 1000000);
-    std::snprintf(line, sizeof(line), "%02lu:%02lu:%02lu  %luKB",
-        static_cast<unsigned long>(seconds / 3600),
-        static_cast<unsigned long>((seconds / 60) % 60),
-        static_cast<unsigned long>(seconds % 60),
-        static_cast<unsigned long>(esp_get_free_internal_heap_size() / 1024));
-    lv_label_set_text(diagnostic_values[5], line);
-    std::snprintf(line, sizeof(line), "%s  (#%lu)",
-        reset_reason_text(boot_reason), static_cast<unsigned long>(boot_count));
-    lv_label_set_text(diagnostic_values[6], line);
-    lv_label_set_text(diagnostic_values[7],
-        !power.vbus_valid ? "UNKNOWN" : power.external_power ? "USB POWER" : "ON BATTERY");
-    if (!power.vbus_valid) {
-        lv_label_set_text(diagnostic_values[8], "UNKNOWN");
-    } else if (!power.battery_present) {
-        lv_label_set_text(diagnostic_values[8], "NOT INSTALLED");
-    } else if (!power.valid) {
-        lv_label_set_text(diagnostic_values[8], "GAUGE UNKNOWN");
-    } else {
-        std::snprintf(line, sizeof(line), "%u%%  %s",
-            static_cast<unsigned>(power.percent),
-            power.charging ? "CHARGING" : "NOT CHARGING");
-        lv_label_set_text(diagnostic_values[8], line);
-    }
-    std::snprintf(line, sizeof(line), "%s  %u deg",
-        device_orientation_is_auto() ? "AUTO" : "LOCK",
-        static_cast<unsigned>(device_orientation_rotation() * 90));
-    lv_label_set_text(diagnostic_values[9], line);
-    std::snprintf(line, sizeof(line), "%u%%   TAP",
-        static_cast<unsigned>(device_power_user_brightness()));
-    lv_label_set_text(diagnostic_values[10], line);
-    const unsigned idle_s = device_power_idle_dim_seconds();
-    if (idle_s == 0) {
-        lv_label_set_text(diagnostic_values[11], "OFF   TAP");
-    } else {
-        std::snprintf(line, sizeof(line), "%u min   TAP", idle_s / 60);
-        lv_label_set_text(diagnostic_values[11], line);
-    }
-}
-
 void refresh_navigation(lv_timer_t *) {
     // This runs inside the BSP/LVGL GUI task: serialize controller commands
     // with its SPI flushes. The screen is square, so hardware quarter turns
@@ -273,27 +195,23 @@ void refresh_navigation(lv_timer_t *) {
     // Apply display-only idle dimming even if the nav snapshot didn't change.
     // Keep the ESP32 fully awake: garage PWR, HID voice and BLE still work.
     const uint8_t target_brightness =
-        device_power_target_brightness(current.route_active, diagnostics_visible);
+        device_power_target_brightness(current.route_active, false);
     if (target_brightness != applied_brightness &&
         bsp_display_brightness_set(target_brightness) == ESP_OK) {
         applied_brightness = target_brightness;
         ESP_LOGI(TAG, "Panel brightness %u%% (route=%d diagnostic=%d)",
                  static_cast<unsigned>(target_brightness),
                  static_cast<int>(current.route_active),
-                 static_cast<int>(diagnostics_visible));
+                 0);
     }
 
     // Evaluate the transient overlay BEFORE the snapshot-change guard, so
     // it disappears on time even when Maps/BLE are completely idle.
     const int64_t now_us = esp_timer_get_time();
-    update_diagnostics(now_us);
     const bool garage_active = current.garage_banner[0] &&
                               now_us < current.garage_banner_until_us;
-    const bool orientation_active = orientation_notice[0] &&
-                                    now_us < orientation_notice_until_us;
-    const bool banner_active = garage_active || orientation_active;
-    const char *banner_message = garage_active ? current.garage_banner :
-                                 orientation_active ? orientation_notice : "";
+    const bool banner_active = garage_active;
+    const char *banner_message = current.garage_banner;
     if (banner_active) {
         if (!garage_toast_visible ||
             std::strcmp(garage_previous_text, banner_message) != 0) {
@@ -359,7 +277,7 @@ void refresh_navigation(lv_timer_t *) {
     previous = current;
 
     lv_label_set_text(connection,
-        current.connected ? "BLE OK - TAP STATUS" : "BLE WAIT - TAP STATUS");
+        current.connected ? "BLE CONNECTED" : "BLE WAITING");
     // Real AXP2101 fuel-gauge data from the WAVE SHARE DEVICE, not phone.
     if (power_changed) {
         last_device_battery = power_percent;
@@ -455,73 +373,10 @@ void refresh_navigation(lv_timer_t *) {
     }
 }
 
-void orientation_touch_event(lv_event_t *event) {
-    const lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_PRESSED) {
-        orientation_long_press_handled = false;
-        device_power_note_activity(); // Wake the display even on a long touch.
-    } else if (code == LV_EVENT_LONG_PRESSED) {
-        orientation_long_press_handled = true;
-        if (diagnostics_visible) return;
-        if (device_orientation_calibrate_auto()) {
-            orientation_feedback("AUTO ROTATE ON");
-            ESP_LOGI(TAG, "AUTO rotation enabled; USB-down set as 0 degrees");
-        } else {
-            orientation_feedback("HOLD UPRIGHT TO CALIBRATE");
-            ESP_LOGW(TAG, "AUTO calibration needs stationary vertical device");
-        }
-    } else if (code == LV_EVENT_CLICKED && !orientation_long_press_handled) {
-        lv_indev_t *indev = lv_indev_active();
-        if (!indev) return;
-        lv_point_t point = {};
-        lv_indev_get_point(indev, &point);
-        // CO5300 hardware rotation does not rotate capacitive-touch reports.
-        // Convert panel coordinates back to 466x466 LVGL logical pixels.
-        int x = point.x, y = point.y;
-        switch (applied_orientation) {
-            case 1: x = point.y; y = 465 - point.x; break;
-            case 2: x = 465 - point.x; y = 465 - point.y; break;
-            case 3: x = 465 - point.y; y = point.x; break;
-            default: break;
-        }
-        if (diagnostics_visible) {
-            if (y >= 329 && y < 355) {
-                const unsigned pct = device_power_cycle_brightness();
-                ESP_LOGI(TAG, "Saved brightness=%u%%", pct);
-                diagnostics_refresh_us = 0;
-            } else if (y >= 355 && y < 390) {
-                const unsigned seconds = device_power_cycle_idle_dim();
-                ESP_LOGI(TAG, "Saved idle dim after=%u seconds", seconds);
-                diagnostics_refresh_us = 0;
-            } else {
-                diagnostics_visible = false;
-                lv_obj_add_flag(diagnostic_panel, LV_OBJ_FLAG_HIDDEN);
-            }
-            return;
-        }
-        if (y >= 65 && y < 120 && x >= 100 && x <= 365) {
-            diagnostics_visible = true;
-            diagnostics_refresh_us = 0;
-            lv_obj_remove_flag(diagnostic_panel, LV_OBJ_FLAG_HIDDEN);
-            update_diagnostics(esp_timer_get_time());
-            return;
-        }
-        const unsigned degrees = device_orientation_next_manual() * 90;
-        char message[32];
-        std::snprintf(message, sizeof(message), "ROTATION LOCK %u", degrees);
-        orientation_feedback(message);
-    }
-}
-
 void draw_home() {
     auto *screen = lv_screen_active();
     lv_obj_clean(screen);
-    // All current dashboard widgets are informational; use the existing
-    // capacitive touchscreen without stealing GPIO PWR (garage) or BOOT
-    // (voice/media assistant). Tap = rotate/lock, long press = calibrate AUTO.
-    // One full-screen transparent input layer is attached below, above all
-    // otherwise informational labels and cockpit artwork. The previous
-    // background-only listener missed touches on foreground objects.
+    // Display only. All settings and diagnostics are in GC8 Companion.
     lv_obj_set_style_bg_color(screen, lv_color_hex(kBlack), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
@@ -682,56 +537,6 @@ void draw_home() {
     garage_toast_text = make_label(garage_toast, "", &lv_font_montserrat_20,
                                   kWhite, 10, 19, 334, LV_TEXT_ALIGN_CENTER);
     lv_obj_add_flag(garage_toast, LV_OBJ_FLAG_HIDDEN);
-
-    // Diagnostics use a dedicated overlay. No pairing/permissions or phone
-    // access is needed; values come directly from the ESP32 and AXP2101.
-    diagnostic_panel = lv_obj_create(screen);
-    lv_obj_set_pos(diagnostic_panel, 22, 16);
-    lv_obj_set_size(diagnostic_panel, 422, 434);
-    lv_obj_set_style_bg_color(diagnostic_panel, lv_color_hex(0x061422), 0);
-    lv_obj_set_style_bg_opa(diagnostic_panel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(diagnostic_panel, lv_color_hex(kBlue), 0);
-    lv_obj_set_style_border_width(diagnostic_panel, 2, 0);
-    lv_obj_set_style_radius(diagnostic_panel, 47, 0);
-    lv_obj_set_style_pad_all(diagnostic_panel, 0, 0);
-    lv_obj_remove_flag(diagnostic_panel, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(diagnostic_panel, LV_OBJ_FLAG_CLICKABLE);
-    make_label(diagnostic_panel, "GC8  /  SYSTEM STATUS",
-               &lv_font_montserrat_24, kBlue, 45, 16, 335, LV_TEXT_ALIGN_LEFT);
-    add_rule(diagnostic_panel, 21, 49, 378, 1, kRule, LV_OPA_80);
-    const char *names[12] = {
-        "COMPANION", "VOICE HID", "MEDIA HID", "BLE LINKS",
-        "LAST DROP", "UPTIME / RAM", "RESET", "POWER SOURCE",
-        "BATTERY", "ORIENTATION", "BRIGHTNESS", "IDLE DIM"
-    };
-    for (int i = 0; i < 12; ++i) {
-        const int top = 61 + i * 26;
-        make_label(diagnostic_panel, names[i], &lv_font_montserrat_16,
-                   i >= 10 ? kBlue : kMuted, 20, top, 165, LV_TEXT_ALIGN_LEFT);
-        diagnostic_values[i] = make_label(diagnostic_panel, "--",
-                         &lv_font_montserrat_16, kWhite, 183, top, 215,
-                         LV_TEXT_ALIGN_LEFT);
-    }
-    add_rule(diagnostic_panel, 20, 386, 380, 1, kRule, LV_OPA_70);
-    make_label(diagnostic_panel, "TAP BRIGHT / DIM TO CHANGE",
-               &lv_font_montserrat_16, kBlue, 57, 392, 322, LV_TEXT_ALIGN_CENTER);
-    make_label(diagnostic_panel, "TAP ELSEWHERE TO CLOSE",
-               &lv_font_montserrat_16, kMuted, 67, 411, 300, LV_TEXT_ALIGN_CENTER);
-    lv_obj_add_flag(diagnostic_panel, LV_OBJ_FLAG_HIDDEN);
-
-    // The dashboard is otherwise non-interactive. The transparent top layer
-    // reliably receives taps over clock, labels, graphics and idle panel.
-    // Touch never invokes garage PWR, BOOT voice or any network action.
-    auto *touch_surface = lv_obj_create(screen);
-    lv_obj_set_pos(touch_surface, 0, 0);
-    lv_obj_set_size(touch_surface, 466, 466);
-    lv_obj_set_style_bg_opa(touch_surface, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(touch_surface, 0, 0);
-    lv_obj_set_style_pad_all(touch_surface, 0, 0);
-    lv_obj_remove_flag(touch_surface, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(touch_surface, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(touch_surface, orientation_touch_event,
-                        LV_EVENT_ALL, nullptr);
 
     lv_timer_create(refresh_navigation, 250, nullptr);
     refresh_navigation(nullptr);

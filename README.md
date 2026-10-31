@@ -1,5 +1,15 @@
 # GC8 Gauge Display
 
+## CURRENT: Source-grounded AFR visual refresh (Oct 31, 2026)
+
+The original 466×466 GC8 cockpit **is not redesigned**. This narrowly scoped firmware change updates **only** the shared `cockpit_art.h` lower near-rim 30-segment AFR sweep and adds fixed scale markings in `main.cpp`: `10 / 12 / 14 / 16 / 18` with high-contrast dark backing. Segments are now **thicker, brighter blue** while preserving the exact current arc location and road image, bezel, clock, battery/USB, BLE status, LEFT/RIGHT/STRAIGHT arrow artwork, distances, street, and existing idle panel. The shared AFR graphic and `WIDEBAND AFR` / `--.-` readout remain present **regardless of whether Google Maps is idle or navigating**.
+
+**There is NO wideband input yet.** The blue bar is a static illuminated decorative scale and is **not** a measured 10–18 AFR reading. Until the AEM controller is installed, the large number stays `--.-` except for the app's explicitly marked `DEMO:` test mode. No new sensor wire, Bluetooth packet, fake measurement, animation or LED alarm logic is added.
+
+**Preview files** generated with a Python re-render of the repository's actual `cockpit_art.h` mask formulas, `main.cpp` coordinates, and the approved `nav_right_pixels` A8 image: `gc8_afr_navigation_after.png`, `gc8_afr_idle_after.png`, `gc8_afr_navigation_idle_comparison.png` (shared with the owner in conversation, **not** firmware assets). Previews are representative source-grounded composites, not emulator screenshots or photographs; exact LVGL/Montserrat raster details may differ. The idle screen still says READY: that is a separate design choice, not part of this bar-only change.
+
+Only the **Waveshare firmware** repository needs pulling/building for this change. Android Companion remains unchanged. Firmware has been reviewed statically, **not successfully compiled or flashed on the device** in this conversation. `git pull` then `.\\build.bat` inside the ESP-IDF environment, and flash after build confirmation. Check GitHub Actions for compiler status.
+
 ## CURRENT: All display settings and diagnostics are controlled from the phone (Oct 31, 2026)
 
 The touchscreen control scheme described in the older October 24 notes below has been **replaced**. The Waveshare is now **display-only**: touching its tiny screen does not rotate, calibrate, change brightness, open diagnostics, or change settings. There is no on-gauge menu and no requirement to reach a rotated touch target.

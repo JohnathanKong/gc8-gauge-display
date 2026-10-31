@@ -103,7 +103,6 @@ inline void paint_afr_sweep() {
     constexpr float last_angle = 157.f * degrees_to_rad;
     constexpr float sweep = last_angle - first_angle;
     constexpr float cx = 233.f, cy = 233.f;
-    constexpr float radius = 205.f;
     constexpr int count = 30;
     for (int y = 0; y < sweep_h; ++y) {
         const float dy = static_cast<float>(y + sweep_y) - cy;

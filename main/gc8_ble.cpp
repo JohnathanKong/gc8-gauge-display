@@ -1,4 +1,6 @@
 #include "gc8_ble.h"
+#include "device_orientation.h"
+#include "device_power.h"
 
 #include <cstring>
 #include <cstdio>
@@ -6,6 +8,8 @@
 #include <atomic>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+#include "esp_system.h"
 #include "freertos/portmacro.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -99,6 +103,60 @@ std::atomic<uint32_t> total_ble_disconnects{0};
 std::atomic<int> last_ble_disconnect_reason{-1};
 std::atomic<uint32_t> submitted_voice_reports{0};
 std::atomic<uint32_t> submitted_media_reports{0};
+
+// Phone-only display management. Always use the EXISTING authorized GC8
+// write/notify GATT characteristics; no new HID descriptors or services.
+// NimBLE receives writes; a separate task applies NVS writes and sends status.
+struct DeviceCommand { uint8_t kind; uint16_t value; };
+enum : uint8_t { kStatus = 0, kRotation = 1, kAuto = 2, kBrightness = 3, kIdle = 4 };
+QueueHandle_t device_command_queue = nullptr;
+
+bool queue_device_command(uint8_t kind, uint16_t value) {
+    if (!device_command_queue) return false;
+    const DeviceCommand cmd = {kind, value};
+    return xQueueSend(device_command_queue, &cmd, 0) == pdTRUE;
+}
+
+// Return -1 for invalid management command, 0 for ordinary nav/Garage,
+// 1 if an authorized display command was queued.
+int parse_device_command(const char *message) {
+    if (std::strcmp(message, "GC8|1|SYS|GET") == 0)
+        return queue_device_command(kStatus, 0) ? 1 : -1;
+    constexpr char prefix[] = "GC8|1|CFG|";
+    if (std::strncmp(message, prefix, sizeof(prefix)-1) != 0) return 0;
+    const char *payload = message + sizeof(prefix)-1;
+    uint8_t kind = 0;
+    uint16_t value = 0;
+    if (std::strcmp(payload, "AUTO") == 0) kind = kAuto;
+    else if (std::strncmp(payload, "ROT|", 4) == 0) {
+        kind = kRotation;
+        const char *angle = payload + 4;
+        if (std::strcmp(angle, "0") == 0) value = 0;
+        else if (std::strcmp(angle, "90") == 0) value = 1;
+        else if (std::strcmp(angle, "180") == 0) value = 2;
+        else if (std::strcmp(angle, "270") == 0) value = 3;
+        else return -1;
+    } else if (std::strncmp(payload, "BRIGHT|", 7) == 0) {
+        kind = kBrightness;
+        const char *bright = payload + 7;
+        if (std::strcmp(bright, "40") == 0) value = 40;
+        else if (std::strcmp(bright, "60") == 0) value = 60;
+        else if (std::strcmp(bright, "75") == 0) value = 75;
+        else if (std::strcmp(bright, "90") == 0) value = 90;
+        else if (std::strcmp(bright, "100") == 0) value = 100;
+        else return -1;
+    } else if (std::strncmp(payload, "DIM|", 4) == 0) {
+        kind = kIdle;
+        const char *period = payload + 4;
+        if (std::strcmp(period, "0") == 0) value = 0;
+        else if (std::strcmp(period, "60") == 0) value = 60;
+        else if (std::strcmp(period, "300") == 0) value = 300;
+        else if (std::strcmp(period, "900") == 0) value = 900;
+        else return -1;
+    } else return -1;
+    return queue_device_command(kind, value) ? 1 : -1;
+}
+
 std::atomic<uint16_t> hid_connection_handle{0};
 uint16_t hid_report_value_handle = 0;
 uint16_t hid_media_report_value_handle = 0;
@@ -401,7 +459,10 @@ int on_write(uint16_t, uint16_t, struct ble_gatt_access_ctxt *ctx, void *) {
     if (ble_hs_mbuf_to_flat(ctx->om, buffer, length, nullptr) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
-    if (!parse_test_message(buffer)) return BLE_ATT_ERR_UNLIKELY;
+    const int config_result = parse_device_command(buffer);
+    if (config_result < 0) return BLE_ATT_ERR_UNLIKELY;
+    if (config_result == 0 && !parse_test_message(buffer))
+        return BLE_ATT_ERR_UNLIKELY;
     ESP_LOGI(TAG, "Accepted GC8 BLE packet (%u bytes)", static_cast<unsigned>(length));
     return 0;
 }
@@ -647,6 +708,94 @@ void host_task(void *) {
 }
 }  // namespace
 
+namespace {
+// Every notification here is at most 20 ASCII bytes and therefore fits even
+// a default 23-byte ATT MTU. Preserve the normal garage and voice events.
+bool send_device_notice(const char *value) {
+    if (!garage_subscribed.load() || !garage_event_value_handle) return false;
+    const size_t length = std::strlen(value);
+    if (length == 0 || length > 20) return false;
+    auto *mbuf = ble_hs_mbuf_from_flat(value, length);
+    if (!mbuf) return false;
+    const int rc = ble_gatts_notify_custom(garage_connection_handle.load(),
+                                            garage_event_value_handle, mbuf);
+    if (rc != 0) ESP_LOGW(TAG, "Phone status notify rc=%d", rc);
+    return rc == 0;
+}
+void send_status_row(char key, const char *value) {
+    char packet[21] = {};
+    const int n = std::snprintf(packet, sizeof(packet), "GC8|1|S|%c|%s", key, value);
+    if (n > 0 && n <= 20) send_device_notice(packet);
+    vTaskDelay(pdMS_TO_TICKS(30));
+}
+void send_system_snapshot() {
+    const auto links = gc8_ble_diagnostics();
+    const auto battery = device_power_snapshot();
+    char row[18] = {};
+    std::snprintf(row, sizeof(row), "%u,%u", unsigned(device_orientation_rotation()*90),
+                  unsigned(device_orientation_is_auto()));
+    send_status_row('R', row);
+    std::snprintf(row, sizeof(row), "%u,%u", unsigned(device_power_user_brightness()),
+                  unsigned(device_power_idle_dim_seconds()));
+    send_status_row('B', row);
+    std::snprintf(row, sizeof(row), "%u,%u,%u", unsigned(links.gatt_subscribed),
+                  unsigned(links.voice_hid_subscribed), unsigned(links.media_hid_subscribed));
+    send_status_row('H', row);
+    std::snprintf(row, sizeof(row), "%u,%lu", unsigned(links.active_connections),
+                  static_cast<unsigned long>(links.connections));
+    send_status_row('L', row);
+    std::snprintf(row, sizeof(row), "%d,%lu", links.last_disconnect_reason,
+                  static_cast<unsigned long>(links.disconnects));
+    send_status_row('D', row);
+    std::snprintf(row, sizeof(row), "%lu,%lu",
+                  static_cast<unsigned long>(links.voice_reports_submitted),
+                  static_cast<unsigned long>(links.media_reports_submitted));
+    send_status_row('C', row);
+    std::snprintf(row, sizeof(row), "%lu",
+                  static_cast<unsigned long>(esp_timer_get_time()/1000000));
+    send_status_row('U', row);
+    std::snprintf(row, sizeof(row), "%lu",
+                  static_cast<unsigned long>(esp_get_free_internal_heap_size()/1024));
+    send_status_row('M', row);
+    nvs_handle_t h = 0;
+    uint32_t boots = 0;
+    if (nvs_open("gc8_boot", NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u32(h, "count", &boots);
+        nvs_close(h);
+    }
+    std::snprintf(row, sizeof(row), "%d,%lu", int(esp_reset_reason()),
+                  static_cast<unsigned long>(boots));
+    send_status_row('X', row);
+    std::snprintf(row, sizeof(row), "%u,%u,%u", unsigned(battery.vbus_valid && battery.external_power),
+                  unsigned(battery.vbus_valid && battery.battery_present),
+                  unsigned(battery.charging));
+    send_status_row('P', row);
+    std::snprintf(row, sizeof(row), "%d", battery.valid ? int(battery.percent) : -1);
+    send_status_row('F', row);
+    send_device_notice("GC8|1|S|END");
+}
+void device_command_task(void *) {
+    DeviceCommand cmd = {};
+    for (;;) {
+        if (xQueueReceive(device_command_queue, &cmd, portMAX_DELAY) != pdTRUE) continue;
+        bool ok = true;
+        switch (cmd.kind) {
+            case kStatus: break;
+            case kRotation: ok = device_orientation_set_manual(uint8_t(cmd.value)); break;
+            case kAuto: ok = device_orientation_calibrate_auto(); break;
+            case kBrightness: ok = device_power_set_brightness(uint8_t(cmd.value)); break;
+            case kIdle: ok = device_power_set_idle_dim(cmd.value); break;
+            default: ok = false; break;
+        }
+        if (cmd.kind != kStatus) {
+            send_device_notice(ok ? "GC8|1|ACK|OK" : "GC8|1|ACK|ERR");
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        send_system_snapshot();
+    }
+}
+} // namespace
+
 void gc8_ble_garage_button_pressed() {
     if (!garage_subscribed.load() || !gc8_ble_snapshot().connected ||
         garage_event_value_handle == 0) {
@@ -837,6 +986,14 @@ void gc8_ble_start() {
     ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_store_config_init();
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+    device_command_queue = xQueueCreate(12, sizeof(DeviceCommand));
+    if (!device_command_queue ||
+        xTaskCreate(device_command_task, "gc8_device_cfg", 4096,
+                    nullptr, 2, nullptr) != pdPASS) {
+        ESP_LOGE(TAG, "Device settings worker unavailable");
+        if (device_command_queue) vQueueDelete(device_command_queue);
+        device_command_queue = nullptr;
+    }
     configure_gatt();
     int rc = ble_gatts_count_cfg(services);
     if (rc == 0) rc = ble_gatts_add_svcs(services);

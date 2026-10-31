@@ -14,6 +14,9 @@ constexpr int road_w = 466, road_h = 151;
 constexpr int road_x = 0, road_y = 175;
 constexpr int sweep_w = 466, sweep_h = 149;
 constexpr int sweep_x = 0, sweep_y = 305;
+// A small transparent perspective grid in the old READY area only.
+constexpr int grid_w = 400, grid_h = 90;
+constexpr int grid_x = 33, grid_y = 208;
 
 static lv_image_dsc_t road = {
     .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
@@ -37,6 +40,15 @@ static lv_image_dsc_t afr_tile_light = {
                .flags = 0, .w = sweep_w, .h = sweep_h,
                .stride = sweep_w, .reserved_2 = 0},
     .data_size = sweep_w * sweep_h, .data = nullptr,
+    .reserved = nullptr, .reserved_2 = nullptr
+};
+
+// Pre-rasterized into PSRAM once, never re-rendered while the dot moves.
+static lv_image_dsc_t idle_grid = {
+    .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
+               .flags = 0, .w = grid_w, .h = grid_h,
+               .stride = grid_w, .reserved_2 = 0},
+    .data_size = grid_w * grid_h, .data = nullptr,
     .reserved = nullptr, .reserved_2 = nullptr
 };
 
@@ -172,6 +184,47 @@ inline void paint_afr_sweep() {
     }
 }
 
+
+inline void paint_idle_grid() {
+    if (!idle_grid.data) return;
+    auto *pixels = const_cast<uint8_t *>(idle_grid.data);
+    // Faint perspective grid beneath the bouncing light. This is decorative
+    // and never represents speed, RPM, navigation, or actual sensor data.
+    constexpr float centre = 200.f;
+    constexpr float bottom_offsets[] = {
+        -188.f, -142.f, -105.f, -70.f, -36.f, 0.f,
+         36.f,   70.f,  105.f, 142.f, 188.f
+    };
+    constexpr float horizontal_depth[] = {0.13f, 0.29f, 0.49f, 0.73f, 0.97f};
+    for (int y = 0; y < grid_h; ++y) {
+        const float depth = (static_cast<float>(y) - 15.f) / 73.f;
+        if (depth < 0.f || depth > 1.f) continue;
+        const float spread = 0.09f + depth * 0.91f;
+        const float half_span = 188.f * spread;
+        for (int x = 0; x < grid_w; ++x) {
+            const float dx = static_cast<float>(x) - centre;
+            if (std::fabs(dx) > half_span) continue;
+            // Boost contrast toward the front of the grid, leaving the
+            // vanishing point visually quiet behind the moving light.
+            float alpha = 0.f;
+            for (float off : bottom_offsets) {
+                const float distance = std::fabs(dx - off * spread);
+                if (distance < 1.3f) {
+                    alpha += (1.3f - distance) * (34.f + 54.f * depth);
+                }
+            }
+            for (float d : horizontal_depth) {
+                const float line_y = 15.f + 73.f * d;
+                const float distance = std::fabs(static_cast<float>(y) - line_y);
+                if (distance < 1.3f) {
+                    alpha += (1.3f - distance) * (35.f + 55.f * d);
+                }
+            }
+            pixels[y * grid_w + x] = alpha_clamp(alpha);
+        }
+    }
+}
+
 inline void rasterize() {
     static bool initialized = false;
     if (initialized) return;
@@ -180,5 +233,6 @@ inline void rasterize() {
     const bool blue_ready = allocate_image(afr_sweep);
     const bool tile_ready = allocate_image(afr_tile_light);
     if (blue_ready && tile_ready) paint_afr_sweep();
+    if (allocate_image(idle_grid)) paint_idle_grid();
 }
 } // namespace cockpit_art

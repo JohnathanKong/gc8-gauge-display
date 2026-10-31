@@ -116,26 +116,30 @@ inline void paint_afr_sweep() {
             const int segment = static_cast<int>(u);
             const float fraction = u - segment;
 
-            // Continuous muted circular rail, bright discrete radial blocks,
-            // and fine inward graduations like an automotive LED sweep.
-            float a = 19.f * glow(r - 211.f, 2.2f);
-            a += 16.f * glow(r - 190.f, 1.8f);
-            if (fraction > 0.12f && fraction < 0.88f) {
-                const float major = segment % 5 == 0 ? 1.12f : 1.f;
-                if (r >= 197.f && r <= 211.f) {
-                    const float core = 178.f * major;
-                    a += core + 32.f * glow(r - radius, 3.6f);
+            // Same near-rim, 30-segment geometry as the approved GC8
+            // cockpit, now with a thicker bright-blue segmented band like
+            // the selected reference. This is a STATIC illuminated scale:
+            // never imply actual AFR measurements before AEM is connected.
+            // All nav/idle scenes use this shared underlying artwork.
+            float a = 23.f * glow(r - 216.f, 1.8f); // outer fine rail
+            a += 22.f * glow(r - 187.f, 1.7f);     // inner rail
+            if (fraction > 0.13f && fraction < 0.87f) {
+                if (r >= 191.f && r <= 215.f) {
+                    // Hard-edged luminous tiles separated by dark radial
+                    // dividers. A subtle centre glow creates a filled bar.
+                    a += 193.f + 48.f * glow(r - 203.f, 6.5f);
+                    if (r > 209.f) a += 13.f;
                 } else {
-                    a += 49.f * glow(std::fabs(r - radius) - 7.f, 3.f);
+                    a += 38.f * glow(std::fabs(r - 203.f) - 12.f, 3.f);
                 }
             }
-            if (fraction < 0.13f && r >= 180.f && r < 194.f) {
-                a += (segment % 5 == 0 ? 128.f : 76.f) *
-                    glow(r - 187.f, 5.2f);
+            // Individual tick marks BELOW the bar, stronger every fifth
+            // segment, without any rich/lean alarm colors.
+            if (fraction < 0.10f && r >= 177.f && r < 189.f) {
+                a += (segment % 5 == 0 ? 149.f : 81.f) *
+                    glow(r - 183.f, 5.5f);
             }
-            // Gentle bloom outside the LED blocks without gradients implying
-            // a calibrated rich/lean indication.
-            a += 18.f * glow(r - radius, 8.f);
+            a += 17.f * glow(r - 203.f, 11.f); // restrained halo
             pixels[y * sweep_w + x] = alpha_clamp(a);
         }
     }

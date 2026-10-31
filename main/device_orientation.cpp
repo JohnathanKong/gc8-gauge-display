@@ -232,6 +232,15 @@ uint8_t device_orientation_next_manual() {
     return next;
 }
 
+bool device_orientation_set_manual(uint8_t quarter_turns) {
+    if (quarter_turns >= 4) return false;
+    auto_mode.store(0);
+    rotation.store(quarter_turns);
+    persist_settings();
+    ESP_LOGI(TAG, "Phone selected rotation=%u", static_cast<unsigned>(quarter_turns*90));
+    return true;
+}
+
 bool device_orientation_calibrate_auto() {
     const int reference = stable_sector.load();
     if (reference < 0 || reference > 3) {

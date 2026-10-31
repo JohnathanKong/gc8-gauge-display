@@ -517,6 +517,20 @@ void draw_home() {
     afr_value = make_label(screen, "--.-", &lv_font_montserrat_48,
                            kWhite, 104, 363, 258, LV_TEXT_ALIGN_CENTER);
 
+    // Fixed AFR SCALE LABELS, not sensor measurements. Keep the existing
+    // WIDEBAND AFR and --.- text readout in BOTH navigation and idle modes.
+    // These are deliberately outside the large center readout and toward the
+    // inner edge of the permanent, near-rim 30-segment sweep.
+    struct AfrScaleMark { const char *value; int x; int y; };
+    constexpr AfrScaleMark afr_scale[] = {
+        {"10",  70, 344}, {"12", 126, 391}, {"14", 222, 430},
+        {"16", 320, 391}, {"18", 372, 344}
+    };
+    for (const auto &mark : afr_scale) {
+        make_label(screen, mark.value, &lv_font_montserrat_16,
+                   kMuted, mark.x, mark.y, 30, LV_TEXT_ALIGN_CENTER);
+    }
+
     // A small drop-down overlay for upper PWR / Meross requests. Only an
     // acknowledged command can say SENT; local button receipt says REQUESTED.
     // Stays independent of both navigation and AFR screen states.

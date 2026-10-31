@@ -108,61 +108,66 @@ inline void paint_afr_sweep() {
     auto *blue = const_cast<uint8_t *>(afr_sweep.data);
     auto *ice = const_cast<uint8_t *>(afr_tile_light.data);
 
-    // Reference layout: 30 broad, individually illuminated tiles in a
-    // shallow smile below the AFR title, NOT a near-rim U-shaped ring.
-    // Keep the bottom-middle clear for the live numeric readout and the
-    // side positions clear for the fixed 10/20 scale labels.
-    constexpr float cx = 233.f;
-    constexpr float half_width = 159.f; // band spans x=74..392
-    constexpr float centre_y = 405.f;
-    constexpr float rise = 65.f;        // ends at y=340, bottom at 405
-    constexpr float tile_half_height = 12.5f;
-    constexpr float tile_pitch = 2.f * half_width / 30.f;
+    // The reference is a CIRCULAR annular sweep. True polar geometry keeps
+    // every upper/lower guide line concentric and every divider radial.
+    // This replaces the previous polynomial parabola and slanted tiles.
+    constexpr float pi = 3.14159265358979323846f;
+    constexpr float first_angle = 46.f * pi / 180.f;
+    constexpr float last_angle = 134.f * pi / 180.f;
+    constexpr float total_angle = last_angle - first_angle;
+    constexpr float cx = 233.f, cy = 210.f;
+    constexpr float tile_inner = 189.f, tile_outer = 214.f;
+    constexpr float rail_inner = 185.5f, rail_outer = 217.5f;
+    constexpr int segments = 30;
 
     for (int y = 0; y < sweep_h; ++y) {
-        const float py = static_cast<float>(y + sweep_y);
+        const float dy = static_cast<float>(y + sweep_y) - cy;
         for (int x = 0; x < sweep_w; ++x) {
-            const float s = (static_cast<float>(x) - cx) / half_width;
-            if (s < -1.04f || s > 1.04f) continue;
-            const float abs_s = std::fabs(s);
-            const float limited_s = abs_s > 1.f ? 1.f : abs_s;
-            const float crown = std::pow(limited_s, 1.65f);
-            const float mid_y = centre_y - rise * crown;
-            const float derivative = abs_s < 0.0001f ? 0.f :
-                -(rise * 1.65f / half_width) *
-                (s > 0.f ? 1.f : -1.f) * std::pow(limited_s, 0.65f);
-            const float v = py - mid_y;
-            const float abs_v = std::fabs(v);
-            // Normal-directed boundaries tilt the tiles with the curve:
-            // vertical at centre, leaning progressively at either end.
-            const float projected_x = static_cast<float>(x) +
-                                      derivative * v;
-            const float along = (projected_x - (cx - half_width)) / tile_pitch;
-            const float seg_index = std::floor(along);
-            const float fraction = along - seg_index;
-            const bool inside_segment = seg_index >= 0.f && seg_index < 30.f;
-            const float edge_distance = (fraction < 0.5f ?
-                                        fraction : 1.f - fraction) * tile_pitch;
-            // Consistent ~2px black gaps, with antialiased edges.
-            const float gap_mask = clamp01((edge_distance - 1.0f) / 1.15f);
-            const float vertical_mask = clamp01(
-                (tile_half_height - abs_v) / 1.5f);
-            const float tile = inside_segment ? gap_mask * vertical_mask : 0.f;
+            const float dx = static_cast<float>(x) - cx;
+            const float radius = std::sqrt(dx * dx + dy * dy);
+            if (radius < 179.f || radius > 230.f) continue;
+            const float angle = std::atan2(dy, dx);
+            // Allow the continuous rails to extend slightly past the tiles.
+            if (angle < first_angle - 0.013f ||
+                angle > last_angle + 0.013f) continue;
+            const bool in_tiles = angle >= first_angle && angle <= last_angle;
+            const float position = (angle - first_angle) /
+                                   total_angle * segments;
+            const float segment_index = std::floor(position);
+            const float fraction = position - segment_index;
+            const float arc_pitch = radius * total_angle / segments;
+            const float edge_distance = (fraction < 0.5f ? fraction :
+                                         1.f - fraction) * arc_pitch;
+            // Antialiased black radial gaps, not stretched parallelograms.
+            const float gap_mask = clamp01((edge_distance - 1.0f) / 0.8f);
+            const float tile_mask = in_tiles && segment_index >= 0.f &&
+                                    segment_index < segments
+                ? gap_mask * clamp01((radius - tile_inner) / 1.f) *
+                             clamp01((tile_outer - radius) / 1.f)
+                : 0.f;
 
-            // Cobalt bloom, slim upper/lower guide lines and lit tile edges.
-            // These share the same curve so rails never drift from the bar.
-            float base = 42.f * glow(abs_v - 14.3f, 1.35f);
-            base += 15.f * glow(abs_v - 17.4f, 3.0f);
-            base += 18.f * glow(abs_v - 11.5f, 5.3f);
-            base += tile * (35.f + 25.f * glow(abs_v - 10.f, 2.8f));
-
-            // Bright blue-to-ice centre, softly stronger towards mid-height.
-            // Unlike the old raster, the two-color fill looks lit, not flat.
-            const float bright = tile * (187.f + 54.f * glow(v, 6.8f));
-            const float end_fade = clamp01((1.035f - abs_s) / 0.035f);
-            const int pos = y * sweep_w + x;
-            blue[pos] = alpha_clamp(base * end_fade);
-            ice[pos] = alpha_clamp(bright * end_fade);
+            // Two continuous bright concentric lines, with a subdued outer
+            // echo and cobalt bloom. These extend uninterrupted across gaps.
+            const float base =
+                18.f * glow(radius - 203.f, 17.f) +
+                74.f * glow(radius - rail_inner, 2.3f) +
+                108.f * glow(radius - rail_inner, 0.7f) +
+                87.f * glow(radius - rail_outer, 2.6f) +
+                140.f * glow(radius - rail_outer, 0.8f) +
+                14.f * glow(radius - 225.f, 2.8f);
+            const float tiles = tile_mask *
+                (30.f + 24.f * glow(radius - 190.f, 2.3f) +
+                        22.f * glow(radius - 213.f, 2.3f));
+            const float tile_glow = tile_mask *
+                (205.f + 28.f * glow(radius - 202.f, 7.f));
+            // Icy-white pinstripes distinguish the thin reference rails
+            // from the richer blue segment bodies and their dark dividers.
+            const float icy_rails =
+                98.f * glow(radius - rail_inner, 0.78f) +
+                148.f * glow(radius - rail_outer, 0.84f);
+            const int pixel = y * sweep_w + x;
+            blue[pixel] = alpha_clamp(base + tiles);
+            ice[pixel] = alpha_clamp(tile_glow + icy_rails);
         }
     }
 }

@@ -3,7 +3,7 @@
 
 ESP-IDF reads sdkconfig.defaults only when creating sdkconfig. Developers
 updating the firmware already have an sdkconfig with older font selections.
-This helper changes only our three font flags and leaves all board settings
+This helper changes only the selected font flags and leaves all board settings
 and other application configuration untouched.
 """
 from pathlib import Path
@@ -17,7 +17,7 @@ if not config_path.is_file():
 
 original = config_path.read_text(encoding="utf-8")
 updated = original
-sizes = (32, 40, 48)
+sizes = (32, 40, 44, 48)
 for size in sizes:
     option = f"CONFIG_LV_FONT_MONTSERRAT_{size}"
     enabled = f"{option}=y"
@@ -30,10 +30,10 @@ for size in sizes:
         updated = updated.rstrip("\r\n") + "\n" + enabled + "\n"
 
 if updated == original:
-    print("LVGL fonts 32, 40 and 48 are already enabled.")
+    print("LVGL fonts 32, 40, 44 and 48 are already enabled.")
 else:
     config_path.write_text(updated, encoding="utf-8")
-    print("Enabled LVGL fonts 32, 40 and 48 in local sdkconfig.")
+    print("Enabled LVGL fonts 32, 40, 44 and 48 in local sdkconfig.")
 
 for size in sizes:
     if f"CONFIG_LV_FONT_MONTSERRAT_{size}=y" not in updated.splitlines():

@@ -30,6 +30,16 @@ static lv_image_dsc_t afr_sweep = {
     .reserved = nullptr, .reserved_2 = nullptr
 };
 
+// Separate light-blue tile layer: the underlying deep-blue mask provides the
+// fine rails and bloom, while this mask gives each segment its icy centre.
+static lv_image_dsc_t afr_tile_light = {
+    .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
+               .flags = 0, .w = sweep_w, .h = sweep_h,
+               .stride = sweep_w, .reserved_2 = 0},
+    .data_size = sweep_w * sweep_h, .data = nullptr,
+    .reserved = nullptr, .reserved_2 = nullptr
+};
+
 inline uint8_t alpha_clamp(float a) {
     if (a <= 0.f) return 0;
     if (a >= 255.f) return 255;
@@ -39,9 +49,12 @@ inline float glow(float dx, float sigma) {
     const float z = dx / sigma;
     return std::exp(-z * z);
 }
+inline float clamp01(float v) {
+    return v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+}
 
 inline bool allocate_image(lv_image_dsc_t &image) {
-    // These two masks total ~140 KiB. Explicit PSRAM allocation avoids
+    // These three masks total ~205 KiB. Explicit PSRAM allocation avoids
     // exhausting the ESP32-S3's scarce internal BLE/LVGL RAM.
     auto *buffer = static_cast<uint8_t *>(heap_caps_malloc(
         image.data_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -91,55 +104,65 @@ inline void paint_road() {
 }
 
 inline void paint_afr_sweep() {
-    if (!afr_sweep.data) return;
-    auto *pixels = const_cast<uint8_t *>(afr_sweep.data);
-    // This is a near-rim lower arc of the actual 466px CIRCLE,
-    // not a U-shaped graphic constrained to the center 280px.
-    // Angle: 23° (right rim) to 157° (left rim), bottom at y~442.
-    // All 30 segments are decorative/unselected until real wideband input.
-    constexpr float pi = 3.14159265358979323846f;
-    constexpr float degrees_to_rad = pi / 180.f;
-    constexpr float first_angle = 23.f * degrees_to_rad;
-    constexpr float last_angle = 157.f * degrees_to_rad;
-    constexpr float sweep = last_angle - first_angle;
-    constexpr float cx = 233.f, cy = 233.f;
-    constexpr int count = 30;
-    for (int y = 0; y < sweep_h; ++y) {
-        const float dy = static_cast<float>(y + sweep_y) - cy;
-        for (int x = 0; x < sweep_w; ++x) {
-            const float dx = static_cast<float>(x) - cx;
-            const float angle = std::atan2(dy, dx);
-            if (angle < first_angle || angle > last_angle) continue;
-            const float r = std::sqrt(dx * dx + dy * dy);
-            const float u = (angle - first_angle) / sweep * count;
-            const int segment = static_cast<int>(u);
-            const float fraction = u - segment;
+    if (!afr_sweep.data || !afr_tile_light.data) return;
+    auto *blue = const_cast<uint8_t *>(afr_sweep.data);
+    auto *ice = const_cast<uint8_t *>(afr_tile_light.data);
 
-            // Same near-rim, 30-segment geometry as the approved GC8
-            // cockpit, now with a thicker bright-blue segmented band like
-            // the selected reference. This is a STATIC illuminated scale:
-            // never imply actual AFR measurements before AEM is connected.
-            // All nav/idle scenes use this shared underlying artwork.
-            float a = 23.f * glow(r - 216.f, 1.8f); // outer fine rail
-            a += 22.f * glow(r - 187.f, 1.7f);     // inner rail
-            if (fraction > 0.13f && fraction < 0.87f) {
-                if (r >= 191.f && r <= 215.f) {
-                    // Hard-edged luminous tiles separated by dark radial
-                    // dividers. A subtle centre glow creates a filled bar.
-                    a += 193.f + 48.f * glow(r - 203.f, 6.5f);
-                    if (r > 209.f) a += 13.f;
-                } else {
-                    a += 38.f * glow(std::fabs(r - 203.f) - 12.f, 3.f);
-                }
-            }
-            // Individual tick marks BELOW the bar, stronger every fifth
-            // segment, without any rich/lean alarm colors.
-            if (fraction < 0.10f && r >= 177.f && r < 189.f) {
-                a += (segment % 5 == 0 ? 149.f : 81.f) *
-                    glow(r - 183.f, 5.5f);
-            }
-            a += 17.f * glow(r - 203.f, 11.f); // restrained halo
-            pixels[y * sweep_w + x] = alpha_clamp(a);
+    // Reference layout: 30 broad, individually illuminated tiles in a
+    // shallow smile below the AFR title, NOT a near-rim U-shaped ring.
+    // Keep the bottom-middle clear for the live numeric readout and the
+    // side positions clear for the fixed 10/20 scale labels.
+    constexpr float cx = 233.f;
+    constexpr float half_width = 159.f; // band spans x=74..392
+    constexpr float centre_y = 405.f;
+    constexpr float rise = 65.f;        // ends at y=340, bottom at 405
+    constexpr float tile_half_height = 12.5f;
+    constexpr float tile_pitch = 2.f * half_width / 30.f;
+
+    for (int y = 0; y < sweep_h; ++y) {
+        const float py = static_cast<float>(y + sweep_y);
+        for (int x = 0; x < sweep_w; ++x) {
+            const float s = (static_cast<float>(x) - cx) / half_width;
+            if (s < -1.04f || s > 1.04f) continue;
+            const float abs_s = std::fabs(s);
+            const float limited_s = abs_s > 1.f ? 1.f : abs_s;
+            const float crown = std::pow(limited_s, 1.65f);
+            const float mid_y = centre_y - rise * crown;
+            const float derivative = abs_s < 0.0001f ? 0.f :
+                -(rise * 1.65f / half_width) *
+                (s > 0.f ? 1.f : -1.f) * std::pow(limited_s, 0.65f);
+            const float v = py - mid_y;
+            const float abs_v = std::fabs(v);
+            // Normal-directed boundaries tilt the tiles with the curve:
+            // vertical at centre, leaning progressively at either end.
+            const float projected_x = static_cast<float>(x) +
+                                      derivative * v;
+            const float along = (projected_x - (cx - half_width)) / tile_pitch;
+            const float seg_index = std::floor(along);
+            const float fraction = along - seg_index;
+            const bool inside_segment = seg_index >= 0.f && seg_index < 30.f;
+            const float edge_distance = (fraction < 0.5f ?
+                                        fraction : 1.f - fraction) * tile_pitch;
+            // Consistent ~2px black gaps, with antialiased edges.
+            const float gap_mask = clamp01((edge_distance - 1.0f) / 1.15f);
+            const float vertical_mask = clamp01(
+                (tile_half_height - abs_v) / 1.5f);
+            const float tile = inside_segment ? gap_mask * vertical_mask : 0.f;
+
+            // Cobalt bloom, slim upper/lower guide lines and lit tile edges.
+            // These share the same curve so rails never drift from the bar.
+            float base = 42.f * glow(abs_v - 14.3f, 1.35f);
+            base += 15.f * glow(abs_v - 17.4f, 3.0f);
+            base += 18.f * glow(abs_v - 11.5f, 5.3f);
+            base += tile * (35.f + 25.f * glow(abs_v - 10.f, 2.8f));
+
+            // Bright blue-to-ice centre, softly stronger towards mid-height.
+            // Unlike the old raster, the two-color fill looks lit, not flat.
+            const float bright = tile * (187.f + 54.f * glow(v, 6.8f));
+            const float end_fade = clamp01((1.035f - abs_s) / 0.035f);
+            const int pos = y * sweep_w + x;
+            blue[pos] = alpha_clamp(base * end_fade);
+            ice[pos] = alpha_clamp(bright * end_fade);
         }
     }
 }
@@ -149,6 +172,8 @@ inline void rasterize() {
     if (initialized) return;
     initialized = true;
     if (allocate_image(road)) paint_road();
-    if (allocate_image(afr_sweep)) paint_afr_sweep();
+    const bool blue_ready = allocate_image(afr_sweep);
+    const bool tile_ready = allocate_image(afr_tile_light);
+    if (blue_ready && tile_ready) paint_afr_sweep();
 }
 } // namespace cockpit_art
